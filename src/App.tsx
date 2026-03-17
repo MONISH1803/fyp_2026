@@ -2,36 +2,39 @@ import React, { useState, useEffect } from 'react';
 import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+// IS 8147:1976 Clause 4.1.1 and Table 9: Permissible Stresses
+// IS 8147:1976 Working Stress Method: No partial safety factors used
 const is8147Yield = (ag: number, sigma_at: number) => {
   return (sigma_at * ag) / 1000;
 };
 
+// IS 8147:1976 Clause 4.1.1 and Table 9: Permissible Stresses
 const is8147Rupture = (an: number, sigma_at_rupture: number) => {
   return (sigma_at_rupture * an) / 1000;
 };
 
-const is8147BlockShear = (sigma_at: number, agv: number, anv: number, agt: number, ant: number) => {
+// IS 8147:1976 Block Shear: Sum of allowable shear strength on failure planes and allowable tensile strength on perpendicular plane
+const is8147BlockShear = (sigma_at: number, tau_a: number, agv: number, anv: number, agt: number, ant: number) => {
   if (agv <= 0 || anv <= 0 || agt <= 0 || ant <= 0) return 0;
-  const tau_a = 0.6 * sigma_at; // Permissible shear stress
   const bs1 = (tau_a * agv) + (sigma_at * ant);
   const bs2 = (tau_a * anv) + (sigma_at * agt);
   return Math.min(bs1, bs2) / 1000;
 };
 
+// EN 1999-1-1:2007 Clause 6.2.3(2)a: Yielding N_pl,Rd = (Ag * fy) / gammaM0
 const euroYield = (ag: number, fy: number, gammaM0: number) => {
   return (ag * fy) / gammaM0 / 1000;
 };
 
+// EN 1999-1-1:2007 Clause 6.2.3(2)b: Rupture N_u,Rd = (0.9 * A_net * fu) / gammaM2
 const euroRupture = (aeff: number, fu: number, gammaM2: number) => {
   return (0.9 * fu * aeff) / gammaM2 / 1000;
 };
 
-const eurocodeBlockShear = (fu: number, fo: number, Ant: number, Agv: number, Anv: number, gammaM1: number, gammaM2: number) => {
+// EN 1999-1-1:2007 Clause 8.5.2.3: Block Tearing V_eff,Rd = (fu * Ant / gammaM2) + (fy * Anv) / (sqrt(3) * gammaM1)
+const eurocodeBlockShear = (fu: number, fy: number, Ant: number, Agv: number, Anv: number, gammaM1: number, gammaM2: number) => {
   if (Agv <= 0 || Anv <= 0 || Ant <= 0) return 0;
-  const shearTerm = Math.min(
-    (fo * Agv) / (Math.sqrt(3) * gammaM1),
-    (fu * Anv) / (Math.sqrt(3) * gammaM2)
-  );
+  const shearTerm = (fy * Anv) / (Math.sqrt(3) * gammaM1);
   const tensionTerm = (fu * Ant) / gammaM2;
   return (tensionTerm + shearTerm) / 1000;
 };
@@ -139,11 +142,11 @@ const getBlockPaths = (inputs: any, holeDia: number): BlockShearPath[] => {
   return paths;
 };
 
-const getCriticalISBlockShear = (paths: BlockShearPath[], sigma_at: number) => {
+const getCriticalISBlockShear = (paths: BlockShearPath[], sigma_at: number, tau_a: number) => {
   let minBs = Infinity;
   let criticalPath: any = null;
   paths.forEach(p => {
-    const bs = is8147BlockShear(sigma_at, p.agv, p.anv, p.agt, p.ant);
+    const bs = is8147BlockShear(sigma_at, tau_a, p.agv, p.anv, p.agt, p.ant);
     if (bs > 0 && bs < minBs) {
       minBs = bs;
       criticalPath = { ...p, bs };
@@ -152,11 +155,11 @@ const getCriticalISBlockShear = (paths: BlockShearPath[], sigma_at: number) => {
   return criticalPath;
 };
 
-const getCriticalEuroBlockTearing = (paths: BlockShearPath[], fu: number, fo: number, gammaM1: number, gammaM2: number) => {
+const getCriticalEuroBlockTearing = (paths: BlockShearPath[], fu: number, fy: number, gammaM1: number, gammaM2: number) => {
   let minBs = Infinity;
   let criticalPath: any = null;
   paths.forEach(p => {
-    const bs = eurocodeBlockShear(fu, fo, p.ant, p.agv, p.anv, gammaM1, gammaM2);
+    const bs = eurocodeBlockShear(fu, fy, p.ant, p.agv, p.anv, gammaM1, gammaM2);
     if (bs > 0 && bs < minBs) {
       minBs = bs;
       criticalPath = { ...p, bs };
@@ -186,9 +189,10 @@ export default function App() {
     L: 100,
     manualBeta: 0.8,
     fy: 250,
-    fu: 410,
+    fu: 290,
     sigma_at: 105,
-    sigma_at_rupture: 205,
+    sigma_at_rupture: 105,
+    tau_a: 65,
     sigmaAtMode: 'Auto',
     gammaM0: 1.1,
     gammaM1: 1.1,
@@ -239,44 +243,53 @@ export default function App() {
         newInputs.fo = newInputs.fy;
       }
 
-      if (name === 'alloy') {
-        if (parsedValue === '6061-T6') {
-          newInputs.fy = 250;
-          newInputs.fu = 310;
-          if (newInputs.foMode === 'Auto') newInputs.fo = 250;
-          if (newInputs.sigmaAtMode === 'Auto') {
-            newInputs.sigma_at = 150;
-            newInputs.sigma_at_rupture = 155;
-          }
-        } else if (parsedValue === '6063-T6') {
-          newInputs.fy = 160;
-          newInputs.fu = 190;
-          if (newInputs.foMode === 'Auto') newInputs.fo = 160;
-          if (newInputs.sigmaAtMode === 'Auto') {
-            newInputs.sigma_at = 95;
-            newInputs.sigma_at_rupture = 95;
-          }
-        } else if (parsedValue === 'HE30-WP') {
-          newInputs.fy = 250;
-          newInputs.fu = 410;
-          if (newInputs.foMode === 'Auto') newInputs.fo = 250;
+      if (name === 'alloy' || name === 'thickness') {
+        const alloyVal = name === 'alloy' ? parsedValue : prev.alloy;
+        const tVal = name === 'thickness' ? parsedValue : prev.thickness;
+
+        if (alloyVal === 'HE30-WP (6061-T6)') {
+          newInputs.fy = tVal <= 6 ? 240 : 250;
+          newInputs.fu = 290;
+          if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
           if (newInputs.sigmaAtMode === 'Auto') {
             newInputs.sigma_at = 105;
-            newInputs.sigma_at_rupture = 205;
+            newInputs.tau_a = 65;
+            newInputs.sigma_at_rupture = 105;
+          }
+        } else if (alloyVal === 'HE20-WP (6082-T6)') {
+          newInputs.fy = 255;
+          newInputs.fu = 300;
+          if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
+          if (newInputs.sigmaAtMode === 'Auto') {
+            newInputs.sigma_at = 115;
+            newInputs.tau_a = 70;
+            newInputs.sigma_at_rupture = 115;
+          }
+        } else if (alloyVal === 'HE9-WP (6063-T6)') {
+          newInputs.fy = 160;
+          newInputs.fu = 190;
+          if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
+          if (newInputs.sigmaAtMode === 'Auto') {
+            newInputs.sigma_at = 85;
+            newInputs.tau_a = 50;
+            newInputs.sigma_at_rupture = 85;
           }
         }
       }
 
       if (name === 'sigmaAtMode' && parsedValue === 'Auto') {
-        if (newInputs.alloy === '6061-T6') {
-          newInputs.sigma_at = 150;
-          newInputs.sigma_at_rupture = 155;
-        } else if (newInputs.alloy === '6063-T6') {
-          newInputs.sigma_at = 95;
-          newInputs.sigma_at_rupture = 95;
-        } else if (newInputs.alloy === 'HE30-WP') {
+        if (newInputs.alloy === 'HE30-WP (6061-T6)') {
           newInputs.sigma_at = 105;
-          newInputs.sigma_at_rupture = 205;
+          newInputs.tau_a = 65;
+          newInputs.sigma_at_rupture = 105;
+        } else if (newInputs.alloy === 'HE20-WP (6082-T6)') {
+          newInputs.sigma_at = 115;
+          newInputs.tau_a = 70;
+          newInputs.sigma_at_rupture = 115;
+        } else if (newInputs.alloy === 'HE9-WP (6063-T6)') {
+          newInputs.sigma_at = 85;
+          newInputs.tau_a = 50;
+          newInputs.sigma_at_rupture = 85;
         }
       }
 
@@ -286,6 +299,7 @@ export default function App() {
 
   useEffect(() => {
     // Derived Geometry
+    // EN 1999-1-1:2007 Clause 8.1.4.2.4: Hole diameter d_0 = d + 2mm
     const holeDia = inputs.dia + 2;
     const ag = getGrossArea(inputs);
     
@@ -296,6 +310,7 @@ export default function App() {
     const criticalAnPath = criticalAn ? criticalAn.id : '';
 
     // Shear Lag Factor (Beta)
+    // EN 1999-1-1:2007 Clause 6.2.3(3): Shear Lag Factor (beta) based on connection length/bolts
     let beta = 1.0;
     if (inputs.betaMode === 'Auto') {
       if (inputs.L > 0) {
@@ -317,7 +332,7 @@ export default function App() {
 
   const calculateResults = () => {
     const { ag, an, aeff, beta, holeDia } = derived;
-    const { fy, fu, fo, alloy, connection, s, g, e, thickness, rows, sigma_at, sigma_at_rupture, gammaM0, gammaM1, gammaM2, sectionType, considerHAZ, rho } = inputs;
+    const { fy, fu, fo, alloy, connection, s, g, e, thickness, rows, sigma_at, tau_a, sigma_at_rupture, gammaM0, gammaM1, gammaM2, sectionType, considerHAZ, rho } = inputs;
 
     // Apply HAZ for Eurocode if applicable
     let fy_eff = fy;
@@ -348,13 +363,13 @@ export default function App() {
     if (connection === 'Bolted' && s > 0 && rows > 0) {
       const bsPaths = getBlockPaths(inputs, holeDia);
       
-      const critIS = getCriticalISBlockShear(bsPaths, sigma_at);
+      const critIS = getCriticalISBlockShear(bsPaths, sigma_at, tau_a);
       if (critIS) {
         is_bs = critIS.bs;
         is_bs_path = critIS.id;
       }
 
-      const critEC = getCriticalEuroBlockTearing(bsPaths, fu_eff, fo_eff, gammaM1, gammaM2);
+      const critEC = getCriticalEuroBlockTearing(bsPaths, fu_eff, fy_eff, gammaM1, gammaM2);
       if (critEC) {
         ec_bs = critEC.bs;
         ec_bs_path = critEC.id;
@@ -363,8 +378,8 @@ export default function App() {
       bsPathsList = bsPaths.map(p => ({
         id: p.id,
         description: p.description,
-        is_bs: is8147BlockShear(sigma_at, p.agv, p.anv, p.agt, p.ant),
-        ec_bs: eurocodeBlockShear(fu_eff, fo_eff, p.ant, p.agv, p.anv, gammaM1, gammaM2)
+        is_bs: is8147BlockShear(sigma_at, tau_a, p.agv, p.anv, p.agt, p.ant),
+        ec_bs: eurocodeBlockShear(fu_eff, fy_eff, p.ant, p.agv, p.anv, gammaM1, gammaM2)
       }));
     }
 
@@ -446,9 +461,9 @@ export default function App() {
                   <label className="text-xs font-semibold text-neutral-500 uppercase">Alloy</label>
                   <select name="alloy" value={inputs.alloy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
                     <option>Generic/Unspecified</option>
-                    <option>6061-T6</option>
-                    <option>6063-T6</option>
-                    <option>HE30-WP</option>
+                    <option>HE30-WP (6061-T6)</option>
+                    <option>HE20-WP (6082-T6)</option>
+                    <option>HE9-WP (6063-T6)</option>
                   </select>
                 </div>
 
@@ -557,7 +572,7 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-blue-700 uppercase">Yield (σ_at) MPa</label>
                       <input type="number" name="sigma_at" value={inputs.sigma_at} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
@@ -565,6 +580,10 @@ export default function App() {
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-blue-700 uppercase">Rupture (σ_at_rupture) MPa</label>
                       <input type="number" name="sigma_at_rupture" value={inputs.sigma_at_rupture} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-blue-700 uppercase">Shear (τ_a) MPa</label>
+                      <input type="number" name="tau_a" value={inputs.tau_a} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
                     </div>
                   </div>
 
