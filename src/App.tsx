@@ -26,20 +26,25 @@ const euroRupture = (aeff: number, fu: number, gammaM2: number) => {
   return (0.9 * fu * aeff) / gammaM2 / 1000;
 };
 
-const eurocodeBlockShear = (fy: number, fu: number, agv: number, anv: number, agt: number, ant: number, gammaM0: number, gammaM2: number) => {
-  if (agv <= 0 || anv <= 0 || agt <= 0 || ant <= 0) return 0;
-  const bs1 = (0.6 * fy * agv / gammaM0) + (fu * ant / gammaM2);
-  const bs2 = (0.6 * fu * anv / gammaM2) + (fy * agt / gammaM0);
-  return Math.min(bs1, bs2) / 1000;
+const eurocodeBlockShear = (fu: number, fo: number, Ant: number, Agv: number, Anv: number, gammaM1: number, gammaM2: number) => {
+  if (Agv <= 0 || Anv <= 0 || Ant <= 0) return 0;
+  const shearTerm = Math.min(
+    (fo * Agv) / (Math.sqrt(3) * gammaM1),
+    (fu * Anv) / (Math.sqrt(3) * gammaM2)
+  );
+  const tensionTerm = (fu * Ant) / gammaM2;
+  return (tensionTerm + shearTerm) / 1000;
 };
 
 export default function App() {
   const [inputs, setInputs] = useState({
     id: 'M-01',
-    sectionType: 'Plates',
+    sectionType: 'Plate',
     connection: 'Bolted',
     alloy: 'Generic/Unspecified',
     width: 100,
+    leg1: 100,
+    leg2: 100,
     thickness: 10,
     dia: 16,
     noOfHoles: 2,
@@ -57,7 +62,10 @@ export default function App() {
     sigma_at_rupture: 205,
     sigmaAtMode: 'Auto',
     gammaM0: 1.1,
+    gammaM1: 1.1,
     gammaM2: 1.25,
+    fo: 250,
+    foMode: 'Auto',
   });
 
   const [derived, setDerived] = useState({
@@ -79,13 +87,21 @@ export default function App() {
     const { name, value, type } = e.target;
     
     setInputs((prev) => {
-      const parsedValue = ['id', 'sectionType', 'connection', 'alloy', 'betaMode', 'sigmaAtMode'].includes(name) ? value : Number(value);
+      const parsedValue = ['id', 'sectionType', 'connection', 'alloy', 'betaMode', 'sigmaAtMode', 'foMode'].includes(name) ? value : Number(value);
       const newInputs = { ...prev, [name]: parsedValue };
+
+      if (name === 'fy' && newInputs.foMode === 'Auto') {
+        newInputs.fo = Number(parsedValue);
+      }
+      if (name === 'foMode' && parsedValue === 'Auto') {
+        newInputs.fo = newInputs.fy;
+      }
 
       if (name === 'alloy') {
         if (parsedValue === '6061-T6') {
           newInputs.fy = 250;
           newInputs.fu = 310;
+          if (newInputs.foMode === 'Auto') newInputs.fo = 250;
           if (newInputs.sigmaAtMode === 'Auto') {
             newInputs.sigma_at = 150;
             newInputs.sigma_at_rupture = 155;
@@ -93,6 +109,7 @@ export default function App() {
         } else if (parsedValue === '6063-T6') {
           newInputs.fy = 160;
           newInputs.fu = 190;
+          if (newInputs.foMode === 'Auto') newInputs.fo = 160;
           if (newInputs.sigmaAtMode === 'Auto') {
             newInputs.sigma_at = 95;
             newInputs.sigma_at_rupture = 95;
@@ -100,6 +117,7 @@ export default function App() {
         } else if (parsedValue === 'HE30-WP') {
           newInputs.fy = 250;
           newInputs.fu = 410;
+          if (newInputs.foMode === 'Auto') newInputs.fo = 250;
           if (newInputs.sigmaAtMode === 'Auto') {
             newInputs.sigma_at = 105;
             newInputs.sigma_at_rupture = 205;
@@ -127,10 +145,25 @@ export default function App() {
   useEffect(() => {
     // Derived Geometry
     const holeDia = inputs.dia + 2;
-    const ag = Math.max(0, inputs.width * inputs.thickness);
+    
+    let ag = 0;
+    if (inputs.sectionType === 'Plate') {
+      ag = Math.max(0, inputs.width * inputs.thickness);
+    } else if (inputs.sectionType === 'Single Angle') {
+      ag = Math.max(0, (inputs.leg1 + inputs.leg2 - inputs.thickness) * inputs.thickness);
+    } else if (inputs.sectionType === 'Double Angle') {
+      ag = Math.max(0, 2 * (inputs.leg1 + inputs.leg2 - inputs.thickness) * inputs.thickness);
+    }
     
     // Net Area Calculation
-    const holesArea = inputs.connection === 'Welded' ? 0 : (inputs.noOfHoles * holeDia * inputs.thickness);
+    let holesArea = 0;
+    if (inputs.connection === 'Bolted') {
+      if (inputs.sectionType === 'Double Angle') {
+        holesArea = inputs.noOfHoles * holeDia * inputs.thickness * 2;
+      } else {
+        holesArea = inputs.noOfHoles * holeDia * inputs.thickness;
+      }
+    }
     const an = Math.max(0, ag - holesArea);
 
     // Shear Lag Factor (Beta)
@@ -151,11 +184,11 @@ export default function App() {
 
   useEffect(() => {
     calculateResults();
-  }, [derived, inputs.fy, inputs.fu, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia, inputs.sigma_at, inputs.sigma_at_rupture, inputs.gammaM0, inputs.gammaM2]);
+  }, [derived, inputs.fy, inputs.fu, inputs.fo, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia, inputs.sigma_at, inputs.sigma_at_rupture, inputs.gammaM0, inputs.gammaM1, inputs.gammaM2, inputs.sectionType]);
 
   const calculateResults = () => {
     const { ag, an, aeff, beta, holeDia } = derived;
-    const { fy, fu, alloy, connection, s, g, e, thickness, rows, sigma_at, sigma_at_rupture, gammaM0, gammaM2 } = inputs;
+    const { fy, fu, fo, alloy, connection, s, g, e, thickness, rows, sigma_at, sigma_at_rupture, gammaM0, gammaM1, gammaM2, sectionType } = inputs;
 
     // IS 8147 Calculations
     const is_yield = is8147Yield(ag, sigma_at);
@@ -169,12 +202,16 @@ export default function App() {
     let is_bs = 0;
     let ec_bs = 0;
     if (connection === 'Bolted' && s > 0 && rows > 0) {
-      const anv = Math.max(0, ((rows - 1) * s + e - (rows - 0.5) * holeDia) * thickness);
-      const ant = Math.max(0, (g - 0.5 * holeDia) * thickness);
-      const agv = Math.max(0, ((rows - 1) * s + e) * thickness);
-      const agt = Math.max(0, g * thickness);
+      let multiplier = 1;
+      if (sectionType === 'Double Angle') multiplier = 2;
+
+      const anv = Math.max(0, ((rows - 1) * s + e - (rows - 0.5) * holeDia) * thickness) * multiplier;
+      const ant = Math.max(0, (g - 0.5 * holeDia) * thickness) * multiplier;
+      const agv = Math.max(0, ((rows - 1) * s + e) * thickness) * multiplier;
+      const agt = Math.max(0, g * thickness) * multiplier;
+      
       is_bs = is8147BlockShear(sigma_at, agv, anv, agt, ant);
-      ec_bs = eurocodeBlockShear(fy, fu, agv, anv, agt, ant, gammaM0, gammaM2);
+      ec_bs = eurocodeBlockShear(fu, fo, ant, agv, anv, gammaM1, gammaM2);
     }
 
     // Final Capacities
@@ -229,6 +266,14 @@ export default function App() {
                   <input type="text" name="id" value={inputs.id} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                 </div>
                 <div className="space-y-1">
+                  <label className="text-xs font-semibold text-neutral-500 uppercase">Section Type</label>
+                  <select name="sectionType" value={inputs.sectionType} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
+                    <option>Plate</option>
+                    <option>Single Angle</option>
+                    <option>Double Angle</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
                   <label className="text-xs font-semibold text-neutral-500 uppercase">Connection</label>
                   <select name="connection" value={inputs.connection} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
                     <option>Bolted</option>
@@ -245,10 +290,24 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-neutral-500 uppercase">Width (mm)</label>
-                  <input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
-                </div>
+                {inputs.sectionType === 'Plate' ? (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-neutral-500 uppercase">Width (mm)</label>
+                    <input type="number" name="width" value={inputs.width} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-500 uppercase">Leg 1 (mm)</label>
+                      <input type="number" name="leg1" value={inputs.leg1} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-500 uppercase">Leg 2 (mm)</label>
+                      <input type="number" name="leg2" value={inputs.leg2} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                    </div>
+                  </>
+                )}
+                
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-neutral-500 uppercase">Thickness (mm)</label>
                   <input type="number" name="thickness" value={inputs.thickness} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
@@ -343,19 +402,47 @@ export default function App() {
                 <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl mt-2">
                   <div className="flex justify-between items-center mb-4">
                     <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1">
-                      Partial Safety Factors - Eurocode
+                      Partial Safety Factors & Parameters - Eurocode
                     </label>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-indigo-700 uppercase">γM0 (Yield)</label>
                       <input type="number" step="0.01" name="gammaM0" value={inputs.gammaM0} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-indigo-700 uppercase">γM1 (Shear)</label>
+                      <input type="number" step="0.01" name="gammaM1" value={inputs.gammaM1} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-indigo-700 uppercase">γM2 (Rupture)</label>
                       <input type="number" step="0.01" name="gammaM2" value={inputs.gammaM2} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                   </div>
+                  <div className="mt-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-semibold text-indigo-700 uppercase">0.2% Proof Stress (fo) MPa</label>
+                      <div className="flex gap-3">
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input type="radio" name="foMode" value="Auto" checked={inputs.foMode === 'Auto'} onChange={handleInputChange} className="w-3 h-3 text-indigo-600" />
+                          <span className="text-xs font-medium text-indigo-800">Auto (=fy)</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input type="radio" name="foMode" value="Manual" checked={inputs.foMode === 'Manual'} onChange={handleInputChange} className="w-3 h-3 text-indigo-600" />
+                          <span className="text-xs font-medium text-indigo-800">Manual</span>
+                        </label>
+                      </div>
+                    </div>
+                    <input type="number" name="fo" value={inputs.fo} onChange={handleInputChange} readOnly={inputs.foMode === 'Auto'} className={`w-full px-3 py-2 border border-indigo-300 rounded-lg outline-none ${inputs.foMode === 'Auto' ? 'bg-indigo-100 text-indigo-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-indigo-500'}`} />
+                    {inputs.fo > inputs.fu && (
+                      <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                        <AlertCircle className="w-3 h-3" /> Warning: fo should be less than or equal to fu.
+                      </p>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-indigo-600 mt-2 flex items-center gap-1">
+                    <Info className="w-3 h-3" /> Block shear is computed as per Eurocode EN 1999 block tearing formulation.
+                  </p>
                 </div>
 
                 <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-emerald-50 border-2 border-emerald-400 rounded-xl mt-2">
@@ -457,7 +544,7 @@ export default function App() {
                     <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
                     <ul className="list-disc pl-5 space-y-1">
                       <li><strong>IS 8147 (Permissible Stress):</strong> min[ (0.6σ_at × Agv + σ_at × Ant), (0.6σ_at × Anv + σ_at × Agt) ]</li>
-                      <li><strong>Eurocode (Limit State):</strong> min[ (0.6fy × Agv / γM0 + fu × Ant / γM2), (0.6fu × Anv / γM2 + fy × Agt / γM0) ]</li>
+                      <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + min[ (fo × Agv) / (√3 × γM1), (fu × Anv) / (√3 × γM2) ]</li>
                       <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The permissible stress approach is assumed for comparison.</li>
                     </ul>
                   </div>
