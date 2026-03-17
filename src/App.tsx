@@ -2,14 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const is8147Yield = (ag: number, fy: number, alloy: string) => {
-  const tableValues: Record<string, number> = {
-    '6061-T6': 105,
-    '6063-T6': 85,
-    'HE30-WP': 105,
-  };
-  const tableValue = tableValues[alloy] || (0.6 * fy);
-  const sigma_at = Math.min(tableValue, 0.6 * fy);
+const is8147Yield = (ag: number, sigma_at: number) => {
   return (sigma_at * ag) / 1000;
 };
 
@@ -52,6 +45,8 @@ export default function App() {
     manualBeta: 0.8,
     fy: 250,
     fu: 410,
+    sigma_at: 105,
+    sigmaAtMode: 'Auto',
   });
 
   const [derived, setDerived] = useState({
@@ -73,20 +68,29 @@ export default function App() {
     const { name, value, type } = e.target;
     
     setInputs((prev) => {
-      const parsedValue = ['id', 'sectionType', 'connection', 'alloy', 'betaMode'].includes(name) ? value : Number(value);
+      const parsedValue = ['id', 'sectionType', 'connection', 'alloy', 'betaMode', 'sigmaAtMode'].includes(name) ? value : Number(value);
       const newInputs = { ...prev, [name]: parsedValue };
 
       if (name === 'alloy') {
         if (parsedValue === '6061-T6') {
           newInputs.fy = 250;
           newInputs.fu = 310;
+          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 150;
         } else if (parsedValue === '6063-T6') {
           newInputs.fy = 160;
           newInputs.fu = 190;
+          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 95;
         } else if (parsedValue === 'HE30-WP') {
           newInputs.fy = 250;
           newInputs.fu = 410;
+          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 105;
         }
+      }
+
+      if (name === 'sigmaAtMode' && parsedValue === 'Auto') {
+        if (newInputs.alloy === '6061-T6') newInputs.sigma_at = 150;
+        else if (newInputs.alloy === '6063-T6') newInputs.sigma_at = 95;
+        else if (newInputs.alloy === 'HE30-WP') newInputs.sigma_at = 105;
       }
 
       return newInputs;
@@ -120,14 +124,14 @@ export default function App() {
 
   useEffect(() => {
     calculateResults();
-  }, [derived, inputs.fy, inputs.fu, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia]);
+  }, [derived, inputs.fy, inputs.fu, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia, inputs.sigma_at]);
 
   const calculateResults = () => {
     const { ag, an, aeff, beta, holeDia } = derived;
-    const { fy, fu, alloy, connection, s, g, e, thickness, rows } = inputs;
+    const { fy, fu, alloy, connection, s, g, e, thickness, rows, sigma_at } = inputs;
 
     // IS 8147 Calculations
-    const is_yield = is8147Yield(ag, fy, alloy);
+    const is_yield = is8147Yield(ag, sigma_at);
     const is_rupture = is8147Rupture(an, fu);
     
     // Eurocode Calculations
@@ -254,12 +258,34 @@ export default function App() {
                 )}
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-neutral-500 uppercase">fy (MPa)</label>
+                  <label className="text-xs font-semibold text-neutral-500 uppercase">fy (MPa) - Eurocode</label>
                   <input type="number" name="fy" value={inputs.fy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-neutral-500 uppercase">fu (MPa)</label>
                   <input type="number" name="fu" value={inputs.fu} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                </div>
+
+                <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-blue-50 border border-blue-200 rounded-xl mt-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-xs font-bold text-blue-800 uppercase flex items-center gap-1">
+                      Permissible Stress (σ_at) - IS 8147
+                    </label>
+                    <div className="flex gap-3">
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="sigmaAtMode" value="Auto" checked={inputs.sigmaAtMode === 'Auto'} onChange={handleInputChange} className="w-3 h-3 text-blue-600" />
+                        <span className="text-xs font-medium text-blue-800">Auto</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="sigmaAtMode" value="Manual" checked={inputs.sigmaAtMode === 'Manual'} onChange={handleInputChange} className="w-3 h-3 text-blue-600" />
+                        <span className="text-xs font-medium text-blue-800">Manual</span>
+                      </label>
+                    </div>
+                  </div>
+                  <input type="number" name="sigma_at" value={inputs.sigma_at} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
+                  <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1">
+                    <Info className="w-3 h-3" /> Using IS 8147 tabulated permissible stress. Independent of fy.
+                  </p>
                 </div>
 
                 <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-emerald-50 border-2 border-emerald-400 rounded-xl mt-2">
@@ -346,7 +372,7 @@ export default function App() {
                     <ul className="list-disc pl-5 space-y-1">
                       <li><strong>Yield:</strong> P_y = σ_at × Ag</li>
                       <li><strong>Rupture:</strong> P_u = 0.5 × fu × An</li>
-                      <li>Note: σ_at = min(table value, 0.6 × fy)</li>
+                      <li className="text-blue-700">Note: σ_at is the tabulated permissible stress, independent of fy.</li>
                     </ul>
                   </div>
                   <div>
