@@ -6,22 +6,30 @@ const is8147Yield = (ag: number, sigma_at: number) => {
   return (sigma_at * ag) / 1000;
 };
 
-const is8147Rupture = (an: number, fu: number) => {
-  return (0.5 * fu * an) / 1000;
+const is8147Rupture = (an: number, sigma_at_rupture: number) => {
+  return (sigma_at_rupture * an) / 1000;
 };
 
-const euroYield = (ag: number, fy: number) => {
-  return (ag * fy) / 1.1 / 1000;
-};
-
-const euroRupture = (aeff: number, fu: number) => {
-  return (0.9 * fu * aeff) / 1.25 / 1000;
-};
-
-const blockShear = (fy: number, fu: number, agv: number, anv: number, agt: number, ant: number) => {
+const is8147BlockShear = (sigma_at: number, agv: number, anv: number, agt: number, ant: number) => {
   if (agv <= 0 || anv <= 0 || agt <= 0 || ant <= 0) return 0;
-  const bs1 = (0.6 * fy * agv / 1.1) + (fu * ant / 1.25);
-  const bs2 = (0.6 * fu * anv / 1.25) + (fy * agt / 1.1);
+  const tau_a = 0.6 * sigma_at; // Permissible shear stress
+  const bs1 = (tau_a * agv) + (sigma_at * ant);
+  const bs2 = (tau_a * anv) + (sigma_at * agt);
+  return Math.min(bs1, bs2) / 1000;
+};
+
+const euroYield = (ag: number, fy: number, gammaM0: number) => {
+  return (ag * fy) / gammaM0 / 1000;
+};
+
+const euroRupture = (aeff: number, fu: number, gammaM2: number) => {
+  return (0.9 * fu * aeff) / gammaM2 / 1000;
+};
+
+const eurocodeBlockShear = (fy: number, fu: number, agv: number, anv: number, agt: number, ant: number, gammaM0: number, gammaM2: number) => {
+  if (agv <= 0 || anv <= 0 || agt <= 0 || ant <= 0) return 0;
+  const bs1 = (0.6 * fy * agv / gammaM0) + (fu * ant / gammaM2);
+  const bs2 = (0.6 * fu * anv / gammaM2) + (fy * agt / gammaM0);
   return Math.min(bs1, bs2) / 1000;
 };
 
@@ -46,7 +54,10 @@ export default function App() {
     fy: 250,
     fu: 410,
     sigma_at: 105,
+    sigma_at_rupture: 205,
     sigmaAtMode: 'Auto',
+    gammaM0: 1.1,
+    gammaM2: 1.25,
   });
 
   const [derived, setDerived] = useState({
@@ -75,22 +86,38 @@ export default function App() {
         if (parsedValue === '6061-T6') {
           newInputs.fy = 250;
           newInputs.fu = 310;
-          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 150;
+          if (newInputs.sigmaAtMode === 'Auto') {
+            newInputs.sigma_at = 150;
+            newInputs.sigma_at_rupture = 155;
+          }
         } else if (parsedValue === '6063-T6') {
           newInputs.fy = 160;
           newInputs.fu = 190;
-          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 95;
+          if (newInputs.sigmaAtMode === 'Auto') {
+            newInputs.sigma_at = 95;
+            newInputs.sigma_at_rupture = 95;
+          }
         } else if (parsedValue === 'HE30-WP') {
           newInputs.fy = 250;
           newInputs.fu = 410;
-          if (newInputs.sigmaAtMode === 'Auto') newInputs.sigma_at = 105;
+          if (newInputs.sigmaAtMode === 'Auto') {
+            newInputs.sigma_at = 105;
+            newInputs.sigma_at_rupture = 205;
+          }
         }
       }
 
       if (name === 'sigmaAtMode' && parsedValue === 'Auto') {
-        if (newInputs.alloy === '6061-T6') newInputs.sigma_at = 150;
-        else if (newInputs.alloy === '6063-T6') newInputs.sigma_at = 95;
-        else if (newInputs.alloy === 'HE30-WP') newInputs.sigma_at = 105;
+        if (newInputs.alloy === '6061-T6') {
+          newInputs.sigma_at = 150;
+          newInputs.sigma_at_rupture = 155;
+        } else if (newInputs.alloy === '6063-T6') {
+          newInputs.sigma_at = 95;
+          newInputs.sigma_at_rupture = 95;
+        } else if (newInputs.alloy === 'HE30-WP') {
+          newInputs.sigma_at = 105;
+          newInputs.sigma_at_rupture = 205;
+        }
       }
 
       return newInputs;
@@ -124,41 +151,44 @@ export default function App() {
 
   useEffect(() => {
     calculateResults();
-  }, [derived, inputs.fy, inputs.fu, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia, inputs.sigma_at]);
+  }, [derived, inputs.fy, inputs.fu, inputs.alloy, inputs.connection, inputs.s, inputs.g, inputs.e, inputs.rows, inputs.thickness, inputs.holeDia, inputs.sigma_at, inputs.sigma_at_rupture, inputs.gammaM0, inputs.gammaM2]);
 
   const calculateResults = () => {
     const { ag, an, aeff, beta, holeDia } = derived;
-    const { fy, fu, alloy, connection, s, g, e, thickness, rows, sigma_at } = inputs;
+    const { fy, fu, alloy, connection, s, g, e, thickness, rows, sigma_at, sigma_at_rupture, gammaM0, gammaM2 } = inputs;
 
     // IS 8147 Calculations
     const is_yield = is8147Yield(ag, sigma_at);
-    const is_rupture = is8147Rupture(an, fu);
+    const is_rupture = is8147Rupture(an, sigma_at_rupture);
     
     // Eurocode Calculations
-    const ec_yield = euroYield(ag, fy);
-    const ec_rupture = euroRupture(aeff, fu);
+    const ec_yield = euroYield(ag, fy, gammaM0);
+    const ec_rupture = euroRupture(aeff, fu, gammaM2);
 
     // Block Shear Calculation
-    let bs = 0;
+    let is_bs = 0;
+    let ec_bs = 0;
     if (connection === 'Bolted' && s > 0 && rows > 0) {
       const anv = Math.max(0, ((rows - 1) * s + e - (rows - 0.5) * holeDia) * thickness);
       const ant = Math.max(0, (g - 0.5 * holeDia) * thickness);
       const agv = Math.max(0, ((rows - 1) * s + e) * thickness);
       const agt = Math.max(0, g * thickness);
-      bs = blockShear(fy, fu, agv, anv, agt, ant);
+      is_bs = is8147BlockShear(sigma_at, agv, anv, agt, ant);
+      ec_bs = eurocodeBlockShear(fy, fu, agv, anv, agt, ant, gammaM0, gammaM2);
     }
 
     // Final Capacities
-    const is_final = Math.min(is_yield, is_rupture);
+    const is_final = is_bs > 0 ? Math.min(is_yield, is_rupture, is_bs) : Math.min(is_yield, is_rupture);
     let is_mode = is_yield < is_rupture ? 'Yielding' : 'Rupture';
+    if (is_bs > 0 && is_bs < Math.min(is_yield, is_rupture)) is_mode = 'Block Shear';
 
-    const ec_final = bs > 0 ? Math.min(ec_yield, ec_rupture, bs) : Math.min(ec_yield, ec_rupture);
+    const ec_final = ec_bs > 0 ? Math.min(ec_yield, ec_rupture, ec_bs) : Math.min(ec_yield, ec_rupture);
     let ec_mode = ec_yield < ec_rupture ? 'Yielding' : 'Rupture';
-    if (bs > 0 && bs < Math.min(ec_yield, ec_rupture)) ec_mode = 'Block Shear';
+    if (ec_bs > 0 && ec_bs < Math.min(ec_yield, ec_rupture)) ec_mode = 'Block Shear';
 
     setResults({
-      is8147: { yield: is_yield, rupture: is_rupture, blockShear: bs, final: is_final, mode: is_mode },
-      eurocode: { yield: ec_yield, rupture: ec_rupture, blockShear: bs, final: ec_final, mode: ec_mode },
+      is8147: { yield: is_yield, rupture: is_rupture, blockShear: is_bs, final: is_final, mode: is_mode },
+      eurocode: { yield: ec_yield, rupture: ec_rupture, blockShear: ec_bs, final: ec_final, mode: ec_mode },
     });
   };
 
@@ -267,9 +297,9 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-blue-50 border border-blue-200 rounded-xl mt-2">
-                  <div className="flex justify-between items-center mb-2">
+                  <div className="flex justify-between items-center mb-4">
                     <label className="text-xs font-bold text-blue-800 uppercase flex items-center gap-1">
-                      Permissible Stress (σ_at) - IS 8147
+                      Permissible Stresses - IS 8147
                     </label>
                     <div className="flex gap-3">
                       <label className="flex items-center gap-1 cursor-pointer">
@@ -282,10 +312,50 @@ export default function App() {
                       </label>
                     </div>
                   </div>
-                  <input type="number" name="sigma_at" value={inputs.sigma_at} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
-                  <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1">
-                    <Info className="w-3 h-3" /> Using IS 8147 tabulated permissible stress. Independent of fy.
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-blue-700 uppercase">Yield (σ_at) MPa</label>
+                      <input type="number" name="sigma_at" value={inputs.sigma_at} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-blue-700 uppercase">Rupture (σ_at_rupture) MPa</label>
+                      <input type="number" name="sigma_at_rupture" value={inputs.sigma_at_rupture} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-blue-600 mt-2 flex items-center gap-1">
+                    <Info className="w-3 h-3" /> Using IS 8147 tabulated permissible stresses.
                   </p>
+                  
+                  {inputs.sigma_at >= inputs.fu && (
+                    <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                      <AlertCircle className="w-3 h-3" /> Warning: σ_at should be less than fu.
+                    </p>
+                  )}
+                  {inputs.sigma_at_rupture >= inputs.fu && (
+                    <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
+                      <AlertCircle className="w-3 h-3" /> Warning: σ_at_rupture should be less than fu.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl mt-2">
+                  <div className="flex justify-between items-center mb-4">
+                    <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1">
+                      Partial Safety Factors - Eurocode
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-indigo-700 uppercase">γM0 (Yield)</label>
+                      <input type="number" step="0.01" name="gammaM0" value={inputs.gammaM0} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-indigo-700 uppercase">γM2 (Rupture)</label>
+                      <input type="number" step="0.01" name="gammaM2" value={inputs.gammaM2} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-1 md:col-span-2 lg:col-span-3 p-4 bg-emerald-50 border-2 border-emerald-400 rounded-xl mt-2">
@@ -371,23 +441,24 @@ export default function App() {
                     <h3 className="font-bold text-neutral-900 mb-2">IS 8147:1976 (Working Stress)</h3>
                     <ul className="list-disc pl-5 space-y-1">
                       <li><strong>Yield:</strong> P_y = σ_at × Ag</li>
-                      <li><strong>Rupture:</strong> P_u = 0.5 × fu × An</li>
-                      <li className="text-blue-700">Note: σ_at is the tabulated permissible stress, independent of fy.</li>
+                      <li><strong>Rupture:</strong> P_u = σ_at_rupture × An</li>
+                      <li className="text-blue-700">Note: σ_at and σ_at_rupture are tabulated permissible stresses.</li>
                     </ul>
                   </div>
                   <div>
                     <h3 className="font-bold text-neutral-900 mb-2">Eurocode EN 1999 (Limit State)</h3>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li><strong>Yield:</strong> N_pl,Rd = (Ag × fy) / 1.1</li>
-                      <li><strong>Rupture:</strong> N_u,Rd = (0.9 × fu × Aeff) / 1.25</li>
+                      <li><strong>Yield:</strong> N_pl,Rd = (Ag × fy) / γM0</li>
+                      <li><strong>Rupture:</strong> N_u,Rd = (0.9 × fu × Aeff) / γM2</li>
                       <li><strong>Effective Area:</strong> Aeff = β × An</li>
                     </ul>
                   </div>
                   <div>
-                    <h3 className="font-bold text-neutral-900 mb-2">Block Shear (IS 800 Based)</h3>
+                    <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li>Tdb = min[ (0.6fyAvg / 1.1 + fuAtn / 1.25), (0.6fuAvn / 1.25 + fyAtg / 1.1) ]</li>
-                      <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. This is assumed from IS 800 for safety.</li>
+                      <li><strong>IS 8147 (Permissible Stress):</strong> min[ (0.6σ_at × Agv + σ_at × Ant), (0.6σ_at × Anv + σ_at × Agt) ]</li>
+                      <li><strong>Eurocode (Limit State):</strong> min[ (0.6fy × Agv / γM0 + fu × Ant / γM2), (0.6fu × Anv / γM2 + fy × Agt / γM0) ]</li>
+                      <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The permissible stress approach is assumed for comparison.</li>
                     </ul>
                   </div>
                 </div>
