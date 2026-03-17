@@ -63,16 +63,22 @@ const getNetAreaPaths = (inputs: any, holeDia: number, ag: number): NetAreaPath[
     description: 'Straight cross-section'
   });
 
-  // Path 2: Staggered
+  // Path 2 to noOfHoles: Staggered
   if (inputs.connection === 'Bolted' && inputs.holePattern === 'Staggered') {
-    const safeGauge = Math.max(0.001, inputs.stagger_g);
-    const staggerAddition = inputs.stagger_z_rupture * (Math.pow(inputs.stagger_s, 2) / (4 * safeGauge)) * inputs.thickness * multiplier;
-    const holesAreaStaggered = (inputs.stagger_n_rupture * holeDia * inputs.thickness * multiplier);
-    paths.push({
-      id: 'Staggered (Zig-Zag)',
-      an: Math.max(0, ag - holesAreaStaggered + staggerAddition),
-      description: 'Zig-zag failure path'
-    });
+    const safeGauge = Math.max(0.001, inputs.g);
+    const s_stag = inputs.s_stag; 
+    
+    // Generate paths for zig-zagging across 2 to noOfHoles lines
+    for (let i = 2; i <= inputs.noOfHoles; i++) {
+      const z = i - 1; // number of staggers
+      const staggerAddition = z * (Math.pow(s_stag, 2) / (4 * safeGauge)) * inputs.thickness * multiplier;
+      const holesAreaStaggered = (i * holeDia * inputs.thickness * multiplier);
+      paths.push({
+        id: `Zig-Zag (${i} holes)`,
+        an: Math.max(0, ag - holesAreaStaggered + staggerAddition),
+        description: `Zig-zag across ${i} holes with ${z} staggers`
+      });
+    }
   }
 
   return paths;
@@ -91,18 +97,20 @@ const getBlockShearPaths = (inputs: any, holeDia: number): BlockShearPath[] => {
   const agv1 = Math.max(0, ((inputs.rows - 1) * inputs.s + inputs.e) * t) * multiplier;
   const agt1 = Math.max(0, inputs.g * t) * multiplier;
 
-  paths.push({ id: 'Straight', agv: agv1, anv: anv1, agt: agt1, ant: ant1 });
+  paths.push({ id: 'Straight Tension', agv: agv1, anv: anv1, agt: agt1, ant: ant1, description: 'Shear along outer line, straight tension' } as any);
 
   // Path 2: Staggered
-  if (inputs.holePattern === 'Staggered') {
-    const safeGauge = Math.max(0.001, inputs.stagger_g);
-    const agv2 = agv1;
-    const anv2 = anv1;
-    const agt2 = Math.max(0, inputs.stagger_gt_bs * t) * multiplier;
-    const staggerAddition = inputs.stagger_z_bs * (Math.pow(inputs.stagger_s, 2) / (4 * safeGauge)) * t * multiplier;
-    const ant2 = Math.max(0, agt2 - (inputs.stagger_n_bs * holeDia * t * multiplier) + staggerAddition);
+  if (inputs.holePattern === 'Staggered' && inputs.noOfHoles > 1) {
+    const safeGauge = Math.max(0.001, inputs.g);
+    const s_stag = inputs.s_stag;
+    
+    const agv2 = Math.max(0, ((inputs.rows - 1) * inputs.s + inputs.e - s_stag) * t) * multiplier;
+    const anv2 = Math.max(0, agv2 - (inputs.rows - 1) * holeDia * t * multiplier);
+    const agt2 = Math.max(0, inputs.g * t) * multiplier;
+    const staggerAddition = 1 * (Math.pow(s_stag, 2) / (4 * safeGauge)) * t * multiplier;
+    const ant2 = Math.max(0, agt2 - (1.5 * holeDia * t * multiplier) + staggerAddition);
 
-    paths.push({ id: 'Staggered (Zig-Zag)', agv: agv2, anv: anv2, agt: agt2, ant: ant2 });
+    paths.push({ id: 'Zig-Zag Tension', agv: agv2, anv: anv2, agt: agt2, ant: ant2, description: 'Shear along inner line, zig-zag tension' } as any);
   }
 
   return paths;
@@ -141,13 +149,7 @@ export default function App() {
     considerHAZ: false,
     rho: 1.0,
     holePattern: 'Straight',
-    stagger_s: 25,
-    stagger_g: 50,
-    stagger_n_rupture: 3,
-    stagger_z_rupture: 2,
-    stagger_gt_bs: 50,
-    stagger_n_bs: 1.5,
-    stagger_z_bs: 1,
+    s_stag: 25,
   });
 
   const [derived, setDerived] = useState({
@@ -157,11 +159,13 @@ export default function App() {
     beta: 1.0,
     aeff: 820,
     criticalAnPath: 'Straight',
+    rupturePaths: [] as NetAreaPath[],
   });
 
   const [results, setResults] = useState({
     is8147: { yield: 0, rupture: 0, blockShear: 0, final: 0, mode: '', bsPath: '' },
     eurocode: { yield: 0, rupture: 0, blockShear: 0, final: 0, mode: '', bsPath: '' },
+    bsPathsList: [] as any[],
   });
 
   const [showFormulas, setShowFormulas] = useState(false);
@@ -261,7 +265,7 @@ export default function App() {
     // Effective Area
     const aeff = Math.max(0, beta * an);
 
-    setDerived({ holeDia, ag, an, beta, aeff, criticalAnPath });
+    setDerived({ holeDia, ag, an, beta, aeff, criticalAnPath, rupturePaths: anPaths });
   }, [inputs]);
 
   useEffect(() => {
@@ -296,6 +300,7 @@ export default function App() {
     let ec_bs = 0;
     let is_bs_path = '';
     let ec_bs_path = '';
+    let bsPathsList: any[] = [];
 
     if (connection === 'Bolted' && s > 0 && rows > 0) {
       const bsPaths = getBlockShearPaths(inputs, holeDia);
@@ -307,6 +312,13 @@ export default function App() {
         const current_is_bs = is8147BlockShear(sigma_at, path.agv, path.anv, path.agt, path.ant);
         const current_ec_bs = eurocodeBlockShear(fu_eff, fo_eff, path.ant, path.agv, path.anv, gammaM1, gammaM2);
         
+        bsPathsList.push({
+          id: path.id,
+          is_bs: current_is_bs,
+          ec_bs: current_ec_bs,
+          description: (path as any).description
+        });
+
         if (current_is_bs > 0 && current_is_bs < min_is_bs) {
           min_is_bs = current_is_bs;
           is_bs_path = path.id;
@@ -333,6 +345,7 @@ export default function App() {
     setResults({
       is8147: { yield: is_yield, rupture: is_rupture, blockShear: is_bs, final: is_final, mode: is_mode, bsPath: is_bs_path },
       eurocode: { yield: ec_yield, rupture: ec_rupture, blockShear: ec_bs, final: ec_final, mode: ec_mode, bsPath: ec_bs_path },
+      bsPathsList
     });
   };
 
@@ -470,52 +483,11 @@ export default function App() {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="text-xs font-semibold text-purple-700 uppercase">Stagger Pitch s (mm)</label>
-                        <input type="number" name="stagger_s" value={inputs.stagger_s} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-purple-700 uppercase">Stagger Gauge g (mm)</label>
-                        <input type="number" name="stagger_g" value={inputs.stagger_g} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
+                        <label className="text-xs font-semibold text-purple-700 uppercase">Stagger Offset (s_stag) mm</label>
+                        <input type="number" name="s_stag" value={inputs.s_stag} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
+                        <p className="text-[10px] text-purple-600 mt-1">Longitudinal distance between staggered holes.</p>
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-purple-200">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-purple-800 uppercase">Rupture Path (Zig-Zag)</label>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-purple-700">Holes in path (n)</label>
-                          <input type="number" step="0.5" name="stagger_n_rupture" value={inputs.stagger_n_rupture} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-purple-700">Number of zig-zags</label>
-                          <input type="number" name="stagger_z_rupture" value={inputs.stagger_z_rupture} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-purple-800 uppercase">Block Shear Tension Path</label>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-purple-700">Gross tension width (mm)</label>
-                          <input type="number" name="stagger_gt_bs" value={inputs.stagger_gt_bs} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold text-purple-700">Holes (n)</label>
-                            <input type="number" step="0.5" name="stagger_n_bs" value={inputs.stagger_n_bs} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold text-purple-700">Zig-zags</label>
-                            <input type="number" name="stagger_z_bs" value={inputs.stagger_z_bs} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-purple-300 rounded-lg outline-none" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {inputs.stagger_g <= 0 && (
-                      <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
-                        <AlertCircle className="w-3 h-3" /> Warning: Stagger gauge must be greater than 0.
-                      </p>
-                    )}
                   </div>
                 )}
 
@@ -687,11 +659,66 @@ export default function App() {
                   {inputs.holePattern === 'Staggered' && inputs.connection === 'Bolted' && (
                     <div className="mt-4 p-3 bg-emerald-100/50 rounded-lg border border-emerald-200">
                       <h4 className="text-xs font-bold text-emerald-800 uppercase mb-2">Governing Paths</h4>
-                      <div className="grid grid-cols-2 gap-4 text-sm text-emerald-900">
+                      <div className="grid grid-cols-2 gap-4 text-sm text-emerald-900 mb-4">
                         <div><span className="font-semibold">Rupture:</span> {derived.criticalAnPath}</div>
                         <div><span className="font-semibold">Block Shear (EC):</span> {results.eurocode.bsPath || 'N/A'}</div>
                       </div>
-                      <p className="text-[10px] text-emerald-700 mt-2">
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <h5 className="text-[11px] font-bold text-emerald-700 uppercase mb-1">Candidate Rupture Paths</h5>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs text-emerald-900">
+                              <thead className="bg-emerald-200/50 text-emerald-800">
+                                <tr>
+                                  <th className="px-2 py-1 rounded-tl-md">Path</th>
+                                  <th className="px-2 py-1">Description</th>
+                                  <th className="px-2 py-1 rounded-tr-md text-right">An (mm²)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-emerald-200/50">
+                                {derived.rupturePaths.map((p, i) => (
+                                  <tr key={i} className={p.id === derived.criticalAnPath ? 'bg-emerald-200/50 font-semibold' : ''}>
+                                    <td className="px-2 py-1">{p.id}</td>
+                                    <td className="px-2 py-1">{p.description}</td>
+                                    <td className="px-2 py-1 text-right">{p.an.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {results.bsPathsList.length > 0 && (
+                          <div>
+                            <h5 className="text-[11px] font-bold text-emerald-700 uppercase mb-1">Candidate Block Shear Paths</h5>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs text-emerald-900">
+                                <thead className="bg-emerald-200/50 text-emerald-800">
+                                  <tr>
+                                    <th className="px-2 py-1 rounded-tl-md">Path</th>
+                                    <th className="px-2 py-1">Description</th>
+                                    <th className="px-2 py-1 text-right">IS 8147 (kN)</th>
+                                    <th className="px-2 py-1 rounded-tr-md text-right">Eurocode (kN)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-emerald-200/50">
+                                  {results.bsPathsList.map((p, i) => (
+                                    <tr key={i} className={p.id === results.eurocode.bsPath ? 'bg-emerald-200/50 font-semibold' : ''}>
+                                      <td className="px-2 py-1">{p.id}</td>
+                                      <td className="px-2 py-1">{p.description}</td>
+                                      <td className="px-2 py-1 text-right">{p.is_bs.toFixed(2)}</td>
+                                      <td className="px-2 py-1 text-right">{p.ec_bs.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <p className="text-[10px] text-emerald-700 mt-3">
                         * Critical zig-zag path governs net section rupture and block shear if selected.
                       </p>
                     </div>
