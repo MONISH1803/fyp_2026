@@ -2,19 +2,280 @@ import React, { useState, useEffect } from 'react';
 import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+const ALLOY_DATABASE = [
+  {
+    id: '3004-H14',
+    name: '3004-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 6) return { fo: 180, fu: 220, rho_o: 0.42, rho_u: 0.70 };
+      if (t <= 13) return { fo: 170, fu: 220, rho_o: 0.44, rho_u: 0.70 };
+      return { fo: 170, fu: 220, rho_o: 0.44, rho_u: 0.70 };
+    }
+  },
+  {
+    id: '3004-H16',
+    name: '3004-H16/H26/H36',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 4) return { fo: 200, fu: 240, rho_o: 0.38, rho_u: 0.65 };
+      if (t <= 13) return { fo: 190, fu: 240, rho_o: 0.39, rho_u: 0.65 };
+      return { fo: 190, fu: 240, rho_o: 0.39, rho_u: 0.65 };
+    }
+  },
+  {
+    id: '3005-H14',
+    name: '3005-H14/H24',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 6) return { fo: 150, fu: 170, rho_o: 0.37, rho_u: 0.68 };
+      if (t <= 13) return { fo: 130, fu: 170, rho_o: 0.43, rho_u: 0.68 };
+      return { fo: 130, fu: 170, rho_o: 0.43, rho_u: 0.68 };
+    }
+  },
+  {
+    id: '3005-H16',
+    name: '3005-H16/H26',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 4) return { fo: 175, fu: 195, rho_o: 0.32, rho_u: 0.59 };
+      if (t <= 13) return { fo: 160, fu: 195, rho_o: 0.35, rho_u: 0.59 };
+      return { fo: 160, fu: 195, rho_o: 0.35, rho_u: 0.59 };
+    }
+  },
+  {
+    id: '3103-H14',
+    name: '3103-H14/H24',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 2) return { fo: 120, fu: 140, rho_o: 0.37, rho_u: 0.64 };
+      if (t <= 12.5) return { fo: 110, fu: 140, rho_o: 0.40, rho_u: 0.64 };
+      return { fo: 110, fu: 140, rho_o: 0.40, rho_u: 0.64 };
+    }
+  },
+  {
+    id: '3103-H16',
+    name: '3103-H16/H26',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 4) return { fo: 145, fu: 160, rho_o: 0.30, rho_u: 0.56 };
+      return { fo: 135, fu: 160, rho_o: 0.33, rho_u: 0.56 };
+    }
+  },
+  {
+    id: '5005-O',
+    name: '5005/5005A-O/H111',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 35, fu: 100, rho_o: 1.0, rho_u: 1.0 };
+    }
+  },
+  {
+    id: '5005-H12',
+    name: '5005/5005A-H12/H22/H32',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 95, fu: 125, rho_o: 0.46, rho_u: 0.80 };
+    }
+  },
+  {
+    id: '5005-H14',
+    name: '5005/5005A-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 120, fu: 145, rho_o: 0.37, rho_u: 0.69 };
+    }
+  },
+  {
+    id: '5052-H12',
+    name: '5052-H12/H22/H32',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 160, fu: 210, rho_o: 0.50, rho_u: 0.81 };
+    }
+  },
+  {
+    id: '5052-H14',
+    name: '5052-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 180, fu: 230, rho_o: 0.44, rho_u: 0.74 };
+    }
+  },
+  {
+    id: '5049-O',
+    name: '5049-O/H111',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 };
+    }
+  },
+  {
+    id: '5049-H14',
+    name: '5049-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 };
+    }
+  },
+  {
+    id: '5454-O',
+    name: '5454-O/H111',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 85, fu: 215, rho_o: 1.0, rho_u: 1.0 };
+    }
+  },
+  {
+    id: '5454-H14',
+    name: '5454-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 220, fu: 270, rho_o: 0.48, rho_u: 0.80 };
+    }
+  },
+  {
+    id: '5754-O',
+    name: '5754-O/H111',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 };
+    }
+  },
+  {
+    id: '5754-H14',
+    name: '5754-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 };
+    }
+  },
+  {
+    id: '5083-O',
+    name: '5083-O/H111',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 50) return { fo: 125, fu: 275, rho_o: 1.0, rho_u: 1.0 };
+      return { fo: 115, fu: 270, rho_o: 1.0, rho_u: 1.0 };
+    }
+  },
+  {
+    id: '5083-H12',
+    name: '5083-H12/H22/H32',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 250, fu: 305, rho_o: 0.62, rho_u: 0.90 };
+    }
+  },
+  {
+    id: '5083-H14',
+    name: '5083-H14/H24/H34',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 280, fu: 340, rho_o: 0.55, rho_u: 0.81 };
+    }
+  },
+  {
+    id: '6061-T4',
+    name: '6061-T4/T451',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 110, fu: 205, rho_o: 0.86, rho_u: 0.73 };
+    }
+  },
+  {
+    id: 'HE30-WP (6061-T6)',
+    name: '6061-T6/T651 (HE30-WP)',
+    is8147: { sigma_at: 105, tau_a: 65, sigma_at_rupture: 105 },
+    eurocode: (t: number) => {
+      if (t <= 12.5) return { fo: 240, fu: 290, rho_o: 0.48, rho_u: 0.60 };
+      return { fo: 240, fu: 290, rho_o: 0.48, rho_u: 0.60 };
+    }
+  },
+  {
+    id: '6082-T4',
+    name: '6082-T4/T451',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 110, fu: 205, rho_o: 0.91, rho_u: 0.78 };
+    }
+  },
+  {
+    id: '6082-T61',
+    name: '6082-T61/T6151',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 12.5) return { fo: 205, fu: 280, rho_o: 0.61, rho_u: 0.66 };
+      return { fo: 200, fu: 275, rho_o: 0.63, rho_u: 0.67 };
+    }
+  },
+  {
+    id: 'HE20-WP (6082-T6)',
+    name: '6082-T6/T651 (HE20-WP)',
+    is8147: { sigma_at: 115, tau_a: 70, sigma_at_rupture: 115 },
+    eurocode: (t: number) => {
+      if (t <= 6) return { fo: 260, fu: 310, rho_o: 0.48, rho_u: 0.60 };
+      if (t <= 12.5) return { fo: 255, fu: 300, rho_o: 0.49, rho_u: 0.62 };
+      return { fo: 240, fu: 295, rho_o: 0.52, rho_u: 0.63 };
+    }
+  },
+  {
+    id: '7020-T6',
+    name: '7020-T6/T651',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      return { fo: 280, fu: 350, rho_o: 0.73, rho_u: 0.80 };
+    }
+  },
+  {
+    id: '8011A-H14',
+    name: '8011A-H14/H24',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 12.5) return { fo: 110, fu: 125, rho_o: 0.34, rho_u: 0.68 };
+      return { fo: 110, fu: 125, rho_o: 0.34, rho_u: 0.68 };
+    }
+  },
+  {
+    id: '8011A-H16',
+    name: '8011A-H16/H26',
+    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
+    eurocode: (t: number) => {
+      if (t <= 4) return { fo: 130, fu: 145, rho_o: 0.28, rho_u: 0.59 };
+      return { fo: 130, fu: 145, rho_o: 0.28, rho_u: 0.59 };
+    }
+  },
+  {
+    id: 'HE9-WP (6063-T6)',
+    name: '6063-T6 (HE9-WP)',
+    is8147: { sigma_at: 85, tau_a: 50, sigma_at_rupture: 85 },
+    eurocode: (t: number) => {
+      return { fo: 160, fu: 190, rho_o: 0.5, rho_u: 0.5 };
+    }
+  },
+  {
+    id: 'Generic/Unspecified',
+    name: 'Generic/Unspecified',
+    is8147: { sigma_at: 105, tau_a: 65, sigma_at_rupture: 105 },
+    eurocode: (t: number) => {
+      return { fo: 250, fu: 290, rho_o: 1.0, rho_u: 1.0 };
+    }
+  }
+];
+
 // Calculation Logic strictly adhering to EN 1999-1-1 and IS 8147:1976
 export function calculateConnectionCapacities(inputs: any) {
   const {
     width, thickness, dia, noOfHoles: n, rows: n_line,
     g, s: p, e, fy, fu, gammaM0, gammaM1, gammaM2,
-    sigma_at, sigma_at_rupture, tau_a, connection, considerHAZ, rho
+    sigma_at, sigma_at_rupture, tau_a, connection, considerHAZ, rho_o, rho_u
   } = inputs;
 
   let fy_eff = fy;
   let fu_eff = fu;
   if (connection === 'Welded' && considerHAZ) {
-    fy_eff = fy * rho;
-    fu_eff = fu * rho;
+    fy_eff = fy * (rho_o !== undefined ? rho_o : inputs.rho);
+    fu_eff = fu * (rho_u !== undefined ? rho_u : inputs.rho);
   }
 
   // 1. Geometric Variables & Area Logic
@@ -116,6 +377,8 @@ export default function App() {
     foMode: 'Auto',
     considerHAZ: false,
     rho: 1.0,
+    rho_o: 1.0,
+    rho_u: 1.0,
     holePattern: 'Straight',
     stagger_p: 25,
     stagger_g: 50,
@@ -162,49 +425,30 @@ export default function App() {
         const alloyVal = name === 'alloy' ? parsedValue : prev.alloy;
         const tVal = name === 'thickness' ? parsedValue : prev.thickness;
 
-        if (alloyVal === 'HE30-WP (6061-T6)') {
-          newInputs.fy = tVal <= 6 ? 240 : 250;
-          newInputs.fu = 290;
+        const alloyData = ALLOY_DATABASE.find(a => a.name === alloyVal) || ALLOY_DATABASE.find(a => a.id === 'Generic');
+        if (alloyData) {
+          const ecProps = alloyData.eurocode(tVal);
+          newInputs.fy = ecProps.fo;
+          newInputs.fu = ecProps.fu;
+          newInputs.rho_o = ecProps.rho_o;
+          newInputs.rho_u = ecProps.rho_u;
+          
           if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
-          if (newInputs.sigmaAtMode === 'Auto') {
-            newInputs.sigma_at = 105;
-            newInputs.tau_a = 65;
-            newInputs.sigma_at_rupture = 105;
-          }
-        } else if (alloyVal === 'HE20-WP (6082-T6)') {
-          newInputs.fy = 255;
-          newInputs.fu = 300;
-          if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
-          if (newInputs.sigmaAtMode === 'Auto') {
-            newInputs.sigma_at = 115;
-            newInputs.tau_a = 70;
-            newInputs.sigma_at_rupture = 115;
-          }
-        } else if (alloyVal === 'HE9-WP (6063-T6)') {
-          newInputs.fy = 160;
-          newInputs.fu = 190;
-          if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
-          if (newInputs.sigmaAtMode === 'Auto') {
-            newInputs.sigma_at = 85;
-            newInputs.tau_a = 50;
-            newInputs.sigma_at_rupture = 85;
+          
+          if (newInputs.sigmaAtMode === 'Auto' && alloyData.is8147.sigma_at > 0) {
+            newInputs.sigma_at = alloyData.is8147.sigma_at;
+            newInputs.tau_a = alloyData.is8147.tau_a;
+            newInputs.sigma_at_rupture = alloyData.is8147.sigma_at_rupture;
           }
         }
       }
 
       if (name === 'sigmaAtMode' && parsedValue === 'Auto') {
-        if (newInputs.alloy === 'HE30-WP (6061-T6)') {
-          newInputs.sigma_at = 105;
-          newInputs.tau_a = 65;
-          newInputs.sigma_at_rupture = 105;
-        } else if (newInputs.alloy === 'HE20-WP (6082-T6)') {
-          newInputs.sigma_at = 115;
-          newInputs.tau_a = 70;
-          newInputs.sigma_at_rupture = 115;
-        } else if (newInputs.alloy === 'HE9-WP (6063-T6)') {
-          newInputs.sigma_at = 85;
-          newInputs.tau_a = 50;
-          newInputs.sigma_at_rupture = 85;
+        const alloyData = ALLOY_DATABASE.find(a => a.name === newInputs.alloy) || ALLOY_DATABASE.find(a => a.id === 'Generic');
+        if (alloyData && alloyData.is8147.sigma_at > 0) {
+          newInputs.sigma_at = alloyData.is8147.sigma_at;
+          newInputs.tau_a = alloyData.is8147.tau_a;
+          newInputs.sigma_at_rupture = alloyData.is8147.sigma_at_rupture;
         }
       }
 
@@ -283,10 +527,9 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-neutral-500 uppercase">Alloy</label>
                   <select name="alloy" value={inputs.alloy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
-                    <option>Generic/Unspecified</option>
-                    <option>HE30-WP (6061-T6)</option>
-                    <option>HE20-WP (6082-T6)</option>
-                    <option>HE9-WP (6063-T6)</option>
+                    {ALLOY_DATABASE.map(a => (
+                      <option key={a.id} value={a.name}>{a.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -490,21 +733,22 @@ export default function App() {
                       
                       {inputs.considerHAZ && (
                         <>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold text-orange-700 uppercase">Reduction Factor ρ (0.6 - 1.0)</label>
-                            <input type="number" step="0.01" min="0.6" max="1.0" name="rho" value={inputs.rho} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" />
-                            {(inputs.rho < 0.6 || inputs.rho > 1.0) && (
-                              <p className="text-[10px] text-rose-600 mt-1 flex items-center gap-1 font-medium">
-                                <AlertCircle className="w-3 h-3" /> Warning: ρ should be between 0.6 and 1.0.
-                              </p>
-                            )}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-orange-700 uppercase">Yield Red. ρ_o</label>
+                              <input type="number" step="0.01" min="0.1" max="1.0" name="rho_o" value={inputs.rho_o} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-orange-700 uppercase">Ult. Red. ρ_u</label>
+                              <input type="number" step="0.01" min="0.1" max="1.0" name="rho_u" value={inputs.rho_u} onChange={handleInputChange} className="w-full px-3 py-2 bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" />
+                            </div>
                           </div>
                           
                           <div className="bg-orange-100 p-3 rounded-lg border border-orange-200">
                             <p className="text-xs font-semibold text-orange-800 mb-2">Reduced strength due to HAZ applied:</p>
                             <div className="grid grid-cols-2 gap-2 text-sm text-orange-900">
-                              <div>fy: {inputs.fy} → <span className="font-bold">{(inputs.fy * inputs.rho).toFixed(1)}</span> MPa</div>
-                              <div>fu: {inputs.fu} → <span className="font-bold">{(inputs.fu * inputs.rho).toFixed(1)}</span> MPa</div>
+                              <div>fy: {inputs.fy} → <span className="font-bold">{(inputs.fy * inputs.rho_o).toFixed(1)}</span> MPa</div>
+                              <div>fu: {inputs.fu} → <span className="font-bold">{(inputs.fu * inputs.rho_u).toFixed(1)}</span> MPa</div>
                             </div>
                           </div>
                         </>
