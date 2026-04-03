@@ -1,267 +1,56 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp, BookOpen, LineChart as LineChartIcon, Sliders } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const ALLOY_DATABASE = [
-  {
-    id: '3004-H14',
-    name: '3004-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 6) return { fo: 180, fu: 220, rho_o: 0.42, rho_u: 0.70 };
-      if (t <= 13) return { fo: 170, fu: 220, rho_o: 0.44, rho_u: 0.70 };
-      return { fo: 170, fu: 220, rho_o: 0.44, rho_u: 0.70 };
-    }
-  },
-  {
-    id: '3004-H16',
-    name: '3004-H16/H26/H36',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 4) return { fo: 200, fu: 240, rho_o: 0.38, rho_u: 0.65 };
-      if (t <= 13) return { fo: 190, fu: 240, rho_o: 0.39, rho_u: 0.65 };
-      return { fo: 190, fu: 240, rho_o: 0.39, rho_u: 0.65 };
-    }
-  },
-  {
-    id: '3005-H14',
-    name: '3005-H14/H24',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 6) return { fo: 150, fu: 170, rho_o: 0.37, rho_u: 0.68 };
-      if (t <= 13) return { fo: 130, fu: 170, rho_o: 0.43, rho_u: 0.68 };
-      return { fo: 130, fu: 170, rho_o: 0.43, rho_u: 0.68 };
-    }
-  },
-  {
-    id: '3005-H16',
-    name: '3005-H16/H26',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 4) return { fo: 175, fu: 195, rho_o: 0.32, rho_u: 0.59 };
-      if (t <= 13) return { fo: 160, fu: 195, rho_o: 0.35, rho_u: 0.59 };
-      return { fo: 160, fu: 195, rho_o: 0.35, rho_u: 0.59 };
-    }
-  },
-  {
-    id: '3103-H14',
-    name: '3103-H14/H24',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 2) return { fo: 120, fu: 140, rho_o: 0.37, rho_u: 0.64 };
-      if (t <= 12.5) return { fo: 110, fu: 140, rho_o: 0.40, rho_u: 0.64 };
-      return { fo: 110, fu: 140, rho_o: 0.40, rho_u: 0.64 };
-    }
-  },
-  {
-    id: '3103-H16',
-    name: '3103-H16/H26',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 4) return { fo: 145, fu: 160, rho_o: 0.30, rho_u: 0.56 };
-      return { fo: 135, fu: 160, rho_o: 0.33, rho_u: 0.56 };
-    }
-  },
-  {
-    id: '5005-O',
-    name: '5005/5005A-O/H111',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 35, fu: 100, rho_o: 1.0, rho_u: 1.0 };
-    }
-  },
-  {
-    id: '5005-H12',
-    name: '5005/5005A-H12/H22/H32',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 95, fu: 125, rho_o: 0.46, rho_u: 0.80 };
-    }
-  },
-  {
-    id: '5005-H14',
-    name: '5005/5005A-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 120, fu: 145, rho_o: 0.37, rho_u: 0.69 };
-    }
-  },
-  {
-    id: '5052-H12',
-    name: '5052-H12/H22/H32',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 160, fu: 210, rho_o: 0.50, rho_u: 0.81 };
-    }
-  },
-  {
-    id: '5052-H14',
-    name: '5052-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 180, fu: 230, rho_o: 0.44, rho_u: 0.74 };
-    }
-  },
-  {
-    id: '5049-O',
-    name: '5049-O/H111',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 };
-    }
-  },
-  {
-    id: '5049-H14',
-    name: '5049-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 };
-    }
-  },
-  {
-    id: '5454-O',
-    name: '5454-O/H111',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 85, fu: 215, rho_o: 1.0, rho_u: 1.0 };
-    }
-  },
-  {
-    id: '5454-H14',
-    name: '5454-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 220, fu: 270, rho_o: 0.48, rho_u: 0.80 };
-    }
-  },
-  {
-    id: '5754-O',
-    name: '5754-O/H111',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 };
-    }
-  },
-  {
-    id: '5754-H14',
-    name: '5754-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 };
-    }
-  },
-  {
-    id: '5083-O',
-    name: '5083-O/H111',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 50) return { fo: 125, fu: 275, rho_o: 1.0, rho_u: 1.0 };
-      return { fo: 115, fu: 270, rho_o: 1.0, rho_u: 1.0 };
-    }
-  },
-  {
-    id: '5083-H12',
-    name: '5083-H12/H22/H32',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 250, fu: 305, rho_o: 0.62, rho_u: 0.90 };
-    }
-  },
-  {
-    id: '5083-H14',
-    name: '5083-H14/H24/H34',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 280, fu: 340, rho_o: 0.55, rho_u: 0.81 };
-    }
-  },
-  {
-    id: '6061-T4',
-    name: '6061-T4/T451',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 110, fu: 205, rho_o: 0.86, rho_u: 0.73 };
-    }
-  },
-  {
-    id: 'HE30-WP (6061-T6)',
-    name: '6061-T6/T651 (HE30-WP)',
-    is8147: { sigma_at: 105, tau_a: 65, sigma_at_rupture: 105 },
-    eurocode: (t: number) => {
-      if (t <= 12.5) return { fo: 240, fu: 290, rho_o: 0.48, rho_u: 0.60 };
-      return { fo: 240, fu: 290, rho_o: 0.48, rho_u: 0.60 };
-    }
-  },
-  {
-    id: '6082-T4',
-    name: '6082-T4/T451',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 110, fu: 205, rho_o: 0.91, rho_u: 0.78 };
-    }
-  },
-  {
-    id: '6082-T61',
-    name: '6082-T61/T6151',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 12.5) return { fo: 205, fu: 280, rho_o: 0.61, rho_u: 0.66 };
-      return { fo: 200, fu: 275, rho_o: 0.63, rho_u: 0.67 };
-    }
-  },
-  {
-    id: 'HE20-WP (6082-T6)',
-    name: '6082-T6/T651 (HE20-WP)',
-    is8147: { sigma_at: 115, tau_a: 70, sigma_at_rupture: 115 },
-    eurocode: (t: number) => {
-      if (t <= 6) return { fo: 260, fu: 310, rho_o: 0.48, rho_u: 0.60 };
-      if (t <= 12.5) return { fo: 255, fu: 300, rho_o: 0.49, rho_u: 0.62 };
-      return { fo: 240, fu: 295, rho_o: 0.52, rho_u: 0.63 };
-    }
-  },
-  {
-    id: '7020-T6',
-    name: '7020-T6/T651',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      return { fo: 280, fu: 350, rho_o: 0.73, rho_u: 0.80 };
-    }
-  },
-  {
-    id: '8011A-H14',
-    name: '8011A-H14/H24',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 12.5) return { fo: 110, fu: 125, rho_o: 0.34, rho_u: 0.68 };
-      return { fo: 110, fu: 125, rho_o: 0.34, rho_u: 0.68 };
-    }
-  },
-  {
-    id: '8011A-H16',
-    name: '8011A-H16/H26',
-    is8147: { sigma_at: 0, tau_a: 0, sigma_at_rupture: 0 },
-    eurocode: (t: number) => {
-      if (t <= 4) return { fo: 130, fu: 145, rho_o: 0.28, rho_u: 0.59 };
-      return { fo: 130, fu: 145, rho_o: 0.28, rho_u: 0.59 };
-    }
-  },
-  {
-    id: 'HE9-WP (6063-T6)',
-    name: '6063-T6 (HE9-WP)',
-    is8147: { sigma_at: 85, tau_a: 50, sigma_at_rupture: 85 },
-    eurocode: (t: number) => {
-      return { fo: 160, fu: 190, rho_o: 0.5, rho_u: 0.5 };
-    }
-  },
-  {
-    id: 'Generic/Unspecified',
-    name: 'Generic/Unspecified',
-    is8147: { sigma_at: 105, tau_a: 65, sigma_at_rupture: 105 },
-    eurocode: (t: number) => {
-      return { fo: 250, fu: 290, rho_o: 1.0, rho_u: 1.0 };
-    }
-  }
+const EUROCODE_ALLOYS = [
+  { id: '3004-H14', name: '3004-H14/H24/H34', getProps: (t: number, sectionType: string) => { if (t <= 6) return { fo: 180, fu: 220, rho_o: 0.42, rho_u: 0.70 }; return { fo: 170, fu: 220, rho_o: 0.44, rho_u: 0.70 }; } },
+  { id: '3004-H16', name: '3004-H16/H26/H36', getProps: (t: number, sectionType: string) => { if (t <= 4) return { fo: 200, fu: 240, rho_o: 0.38, rho_u: 0.65 }; return { fo: 190, fu: 240, rho_o: 0.39, rho_u: 0.65 }; } },
+  { id: '3005-H14', name: '3005-H14/H24', getProps: (t: number, sectionType: string) => { if (t <= 6) return { fo: 150, fu: 170, rho_o: 0.37, rho_u: 0.68 }; return { fo: 130, fu: 170, rho_o: 0.43, rho_u: 0.68 }; } },
+  { id: '3005-H16', name: '3005-H16/H26', getProps: (t: number, sectionType: string) => { if (t <= 4) return { fo: 175, fu: 195, rho_o: 0.32, rho_u: 0.59 }; return { fo: 160, fu: 195, rho_o: 0.35, rho_u: 0.59 }; } },
+  { id: '3103-H14', name: '3103-H14/H24', getProps: (t: number, sectionType: string) => { if (t <= 2) return { fo: 120, fu: 140, rho_o: 0.37, rho_u: 0.64 }; return { fo: 110, fu: 140, rho_o: 0.40, rho_u: 0.64 }; } },
+  { id: '3103-H16', name: '3103-H16/H26', getProps: (t: number, sectionType: string) => { if (t <= 4) return { fo: 145, fu: 160, rho_o: 0.30, rho_u: 0.56 }; return { fo: 135, fu: 160, rho_o: 0.33, rho_u: 0.56 }; } },
+  { id: '5005-O', name: '5005/5005A-O/H111', getProps: (t: number, sectionType: string) => { return { fo: 35, fu: 100, rho_o: 1.0, rho_u: 1.0 }; } },
+  { id: '5005-H12', name: '5005/5005A-H12/H22/H32', getProps: (t: number, sectionType: string) => { return { fo: 95, fu: 125, rho_o: 0.46, rho_u: 0.80 }; } },
+  { id: '5005-H14', name: '5005/5005A-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 120, fu: 145, rho_o: 0.37, rho_u: 0.69 }; } },
+  { id: '5049-O', name: '5049-O/H111', getProps: (t: number, sectionType: string) => { return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 }; } },
+  { id: '5049-H14', name: '5049-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 }; } },
+  { id: '5052-H12', name: '5052-H12/H22/H32', getProps: (t: number, sectionType: string) => { return { fo: 160, fu: 210, rho_o: 0.50, rho_u: 0.81 }; } },
+  { id: '5052-H14', name: '5052-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 180, fu: 230, rho_o: 0.44, rho_u: 0.74 }; } },
+  { id: '5083-O', name: '5083-O/H111', getProps: (t: number, sectionType: string) => { if (t <= 50) return { fo: 125, fu: 275, rho_o: 1.0, rho_u: 1.0 }; return { fo: 115, fu: 270, rho_o: 1.0, rho_u: 1.0 }; } },
+  { id: '5083-H12', name: '5083-H12/H22/H32', getProps: (t: number, sectionType: string) => { return { fo: 250, fu: 305, rho_o: 0.62, rho_u: 0.90 }; } },
+  { id: '5083-H14', name: '5083-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 280, fu: 340, rho_o: 0.55, rho_u: 0.81 }; } },
+  { id: '5454-O', name: '5454-O/H111', getProps: (t: number, sectionType: string) => { return { fo: 85, fu: 215, rho_o: 1.0, rho_u: 1.0 }; } },
+  { id: '5454-H14', name: '5454-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 220, fu: 270, rho_o: 0.48, rho_u: 0.80 }; } },
+  { id: '5754-O', name: '5754-O/H111', getProps: (t: number, sectionType: string) => { return { fo: 80, fu: 190, rho_o: 1.0, rho_u: 1.0 }; } },
+  { id: '5754-H14', name: '5754-H14/H24/H34', getProps: (t: number, sectionType: string) => { return { fo: 190, fu: 240, rho_o: 0.53, rho_u: 0.79 }; } },
+  { id: '6005A-T4', name: '6005A-T4', getProps: (t: number, sectionType: string) => { return { fo: 110, fu: 180, rho_o: 0.82, rho_u: 0.72 }; } },
+  { id: '6005A-T6', name: '6005A-T6', getProps: (t: number, sectionType: string) => { if (t <= 5) return { fo: 215, fu: 255, rho_o: 0.53, rho_u: 0.65 }; return { fo: 200, fu: 250, rho_o: 0.58, rho_u: 0.66 }; } },
+  { id: '6060-T4', name: '6060-T4', getProps: (t: number, sectionType: string) => { return { fo: 60, fu: 120, rho_o: 1.0, rho_u: 0.83 }; } },
+  { id: '6060-T5', name: '6060-T5', getProps: (t: number, sectionType: string) => { return { fo: 120, fu: 160, rho_o: 0.50, rho_u: 0.63 }; } },
+  { id: '6060-T6', name: '6060-T6', getProps: (t: number, sectionType: string) => { return { fo: 150, fu: 190, rho_o: 0.43, rho_u: 0.53 }; } },
+  { id: '6060-T66', name: '6060-T66', getProps: (t: number, sectionType: string) => { return { fo: 160, fu: 215, rho_o: 0.41, rho_u: 0.47 }; } },
+  { id: '6061-T4', name: '6061-T4/T451', getProps: (t: number, sectionType: string) => { return { fo: 110, fu: 205, rho_o: 0.86, rho_u: 0.73 }; } },
+  { id: 'HE30-WP (6061-T6)', name: '6061-T6/T651 (HE30-WP)', getProps: (t: number, sectionType: string) => { if (sectionType === 'Plate') { return { fo: 240, fu: 290, rho_o: 0.48, rho_u: 0.60 }; } else { return { fo: 240, fu: 260, rho_o: 0.48, rho_u: 0.60 }; } } },
+  { id: '6063-T4', name: '6063-T4', getProps: (t: number, sectionType: string) => { return { fo: 65, fu: 130, rho_o: 1.0, rho_u: 0.77 }; } },
+  { id: '6063-T5', name: '6063-T5', getProps: (t: number, sectionType: string) => { return { fo: 130, fu: 175, rho_o: 0.50, rho_u: 0.57 }; } },
+  { id: 'HE9-WP (6063-T6)', name: '6063-T6 (HE9-WP)', getProps: (t: number, sectionType: string) => { return { fo: 170, fu: 215, rho_o: 0.38, rho_u: 0.47 }; } },
+  { id: '6063-T66', name: '6063-T66', getProps: (t: number, sectionType: string) => { return { fo: 200, fu: 245, rho_o: 0.33, rho_u: 0.41 }; } },
+  { id: '6082-T4', name: '6082-T4/T451', getProps: (t: number, sectionType: string) => { return { fo: 110, fu: 205, rho_o: 0.91, rho_u: 0.78 }; } },
+  { id: 'HE20-WP (6082-T6)', name: '6082-T6/T651 (HE20-WP)', getProps: (t: number, sectionType: string) => { if (sectionType === 'Plate') { if (t <= 6) return { fo: 260, fu: 310, rho_o: 0.48, rho_u: 0.60 }; if (t <= 12.5) return { fo: 255, fu: 300, rho_o: 0.49, rho_u: 0.62 }; return { fo: 240, fu: 295, rho_o: 0.52, rho_u: 0.63 }; } else { if (t <= 5) return { fo: 250, fu: 290, rho_o: 0.50, rho_u: 0.64 }; return { fo: 260, fu: 310, rho_o: 0.48, rho_u: 0.60 }; } } },
+  { id: '7020-T6', name: '7020-T6/T651', getProps: (t: number, sectionType: string) => { return { fo: 280, fu: 350, rho_o: 0.73, rho_u: 0.80 }; } },
+  { id: 'Generic/Unspecified', name: 'Generic/Unspecified', getProps: (t: number, sectionType: string) => { return { fo: 250, fu: 290, rho_o: 1.0, rho_u: 1.0 }; } }
 ];
+
+const IS8147_ALLOYS = [
+  { id: 'IS-64430-WP', name: 'IS 64430 (H30) WP', getProps: (t: number, sectionType: string) => { if (sectionType === 'Plate') { if (t <= 6.3) return { sigma_at: 250, sigma_at_rupture: 295 }; return { sigma_at: 240, sigma_at_rupture: 285 }; } else { if (t <= 6.3) return { sigma_at: 255, sigma_at_rupture: 295 }; return { sigma_at: 270, sigma_at_rupture: 310 }; } } },
+  { id: 'IS-65032-WP', name: 'IS 65032 (H20) WP', getProps: (t: number, sectionType: string) => { return { sigma_at: 235, sigma_at_rupture: 280 }; } },
+  { id: 'IS-63400-P', name: 'IS 63400 (H9) P', getProps: (t: number, sectionType: string) => { if (t <= 3.15) return { sigma_at: 140, sigma_at_rupture: 175 }; return { sigma_at: 110, sigma_at_rupture: 155 }; } },
+  { id: 'IS-63400-M', name: 'IS 63400 (H9) M', getProps: (t: number, sectionType: string) => { if (sectionType === 'Plate') { return { sigma_at: 125, sigma_at_rupture: 280 }; } else { return { sigma_at: 130, sigma_at_rupture: 275 }; } } },
+  { id: 'IS-54300-O', name: 'IS 54300 (N8) O', getProps: (t: number, sectionType: string) => { if (sectionType === 'Plate') { if (t <= 6.3) return { sigma_at: 130, sigma_at_rupture: 265 }; return { sigma_at: 115, sigma_at_rupture: 270 }; } else { return { sigma_at: 130, sigma_at_rupture: 280 }; } } },
+  { id: 'Generic/Unspecified', name: 'Generic/Unspecified', getProps: (t: number, sectionType: string) => { return { sigma_at: 105, sigma_at_rupture: 105 }; } }
+];
+
+
 
 // Calculation Logic strictly adhering to EN 1999-1-1 and IS 8147:1976
 export function calculateConnectionCapacities(inputs: any) {
@@ -280,22 +69,45 @@ export function calculateConnectionCapacities(inputs: any) {
 
   // 1. Geometric Variables & Area Logic
   const dh = dia + 2; // Hole Diameter: Bolt Diameter + 2mm
-  const Ag = width * thickness; // Gross Area: Width * Thickness
-  const An = (width - (n * dh)) * thickness; // Net Area: (Width - (n * dh)) * Thickness
+  
+  let Ag = 0;
+  let An = 0;
+  
+  if (inputs.sectionType === 'Plate') {
+    Ag = width * thickness;
+    An = connection === 'Welded' ? Ag : (width - (n * dh)) * thickness;
+  } else if (inputs.sectionType === 'Single Angle') {
+    Ag = (inputs.leg1 + inputs.leg2 - thickness) * thickness;
+    An = connection === 'Welded' ? Ag : Ag - (n * dh * thickness);
+  } else if (inputs.sectionType === 'Double Angle') {
+    Ag = 2 * (inputs.leg1 + inputs.leg2 - thickness) * thickness;
+    An = connection === 'Welded' ? Ag : Ag - (n * dh * 2 * thickness);
+  }
   
   // Net Tension Area for Block Shear (Ant): (Gauge - dh) * Thickness
-  const Ant = (g - dh) * thickness;
+  let Ant = connection === 'Welded' ? 0 : (g - dh) * thickness;
+  let Atg = connection === 'Welded' ? 0 : g * thickness;
+  if (inputs.sectionType === 'Double Angle') {
+    Ant *= 2;
+    Atg *= 2;
+  }
   
   // Net Shear Area for Block Shear (Anv): 2 * (Edge + Pitch * (n_line - 1) - (n_line - 0.5) * dh) * Thickness
-  const Anv = 2 * (e + p * (n_line - 1) - (n_line - 0.5) * dh) * thickness;
+  let Anv = connection === 'Welded' ? 0 : 2 * (e + p * (n_line - 1) - (n_line - 0.5) * dh) * thickness;
+  let Avg = connection === 'Welded' ? 0 : 2 * (e + p * (n_line - 1)) * thickness;
+  if (inputs.sectionType === 'Double Angle') {
+    Anv *= 2;
+    Avg *= 2;
+  }
 
   // 2. Eurocode 9 (EN 1999-1-1) Implementation
   // Yielding (N_pl,Rd): (Ag * fy) / gammaM0
   const ecYield = (Ag * fy_eff) / gammaM0 / 1000;
   
   // Constraint: Apply beta (Shear Lag) ONLY to Rupture. beta = 0.65 for 2 bolts/line and 0.70 for 3+ bolts/line.
+  // EN 1999-1-1 Clause 6.2.3 (2) b - only applies to unsymmetrically connected members like Single Angles
   let beta = 1.0;
-  if (connection === 'Bolted') {
+  if (connection === 'Bolted' && inputs.sectionType === 'Single Angle') {
     beta = n_line >= 3 ? 0.70 : (n_line === 2 ? 0.65 : 1.0);
   }
   
@@ -314,14 +126,34 @@ export function calculateConnectionCapacities(inputs: any) {
   // Yielding: Ag * sigma_at
   const isYield = (Ag * sigma_at) / 1000;
   
-  // Rupture: An * sigma_at_rupture
-  const isRupture = (An * sigma_at_rupture) / 1000;
+  // Rupture: Aeff * sigma_at_rupture
+  let isAeff = An;
+  let isK = 1.0;
+  if (connection === 'Bolted') {
+    if (inputs.sectionType === 'Single Angle') {
+      const a1 = (inputs.leg1 - thickness / 2) * thickness - (n * dh * thickness);
+      const a2 = (inputs.leg2 - thickness / 2) * thickness;
+      isK = (3 * a1) / (3 * a1 + a2);
+      isAeff = a1 + a2 * isK;
+    } else if (inputs.sectionType === 'Double Angle') {
+      const a1 = 2 * ((inputs.leg1 - thickness / 2) * thickness - (n * dh * thickness));
+      const a2 = 2 * (inputs.leg2 - thickness / 2) * thickness;
+      isK = (5 * a1) / (5 * a1 + a2);
+      isAeff = a1 + a2 * isK;
+    }
+  }
+  const isRupture = (isAeff * sigma_at_rupture) / 1000;
   
-  // Block Shear: (tau_a * Anv) + (sigma_at * Ant)
-  // Constraint: Use the user-defined permissible stresses directly. Do NOT use gamma factors here.
+  // Block Shear: IS 800:2007 Clause 6.4.1 implementation (since IS 8147 doesn't specify)
+  // Tdb1 = (Avg * fy / (sqrt(3) * 1.1) + 0.9 * Ant * fu / 1.25)
+  // Tdb2 = (0.9 * Anv * fu / (sqrt(3) * 1.25) + Atg * fy / 1.1)
   let isBlockShear = 0;
+  let isTdb1 = 0;
+  let isTdb2 = 0;
   if (connection === 'Bolted' && n_line > 0 && p > 0) {
-    isBlockShear = ((tau_a * Anv) + (sigma_at * Ant)) / 1000;
+    isTdb1 = ((Avg * fy_eff) / (Math.sqrt(3) * 1.1) + (0.9 * Ant * fu_eff) / 1.25) / 1000;
+    isTdb2 = ((0.9 * Anv * fu_eff) / (Math.sqrt(3) * 1.25) + (Atg * fy_eff) / 1.1) / 1000;
+    isBlockShear = Math.min(isTdb1, isTdb2);
   }
 
   // 4. Output Requirements
@@ -334,7 +166,7 @@ export function calculateConnectionCapacities(inputs: any) {
   return {
     eurocode: { yield: ecYield, rupture: ecRupture, blockShear: ecBlockShear, final: ecFinal, mode: ecMode, bsPath: 'Standard' },
     is8147: { yield: isYield, rupture: isRupture, blockShear: isBlockShear, final: isFinal, mode: isMode, bsPath: 'Standard' },
-    derived: { holeDia: dh, ag: Ag, an: An, beta, aeff: Aeff, criticalAnPath: 'Standard', rupturePaths: [] },
+    derived: { holeDia: dh, ag: Ag, an: An, beta, aeff: Aeff, isK, isAeff, criticalAnPath: 'Standard', rupturePaths: [] },
     bsPathsList: [{
       id: 'Standard',
       description: 'Standard block shear',
@@ -345,11 +177,15 @@ export function calculateConnectionCapacities(inputs: any) {
 }
 
 export default function App() {
+    const [activeTab, setActiveTab] = useState('calculator');
+  const [paramVar, setParamVar] = useState('thickness');
+
   const [inputs, setInputs] = useState({
     id: 'M-01',
     sectionType: 'Plate',
     connection: 'Bolted',
-    alloy: 'Generic/Unspecified',
+    eurocodeAlloy: 'Generic/Unspecified',
+    is8147Alloy: 'Generic/Unspecified',
     width: 100,
     leg1: 100,
     leg2: 100,
@@ -390,8 +226,10 @@ export default function App() {
     an: 820,
     beta: 1.0,
     aeff: 820,
+    isK: 1.0,
+    isAeff: 820,
     criticalAnPath: 'Straight',
-    rupturePaths: [] as NetAreaPath[],
+    rupturePaths: [] as any[],
   });
 
   const [results, setResults] = useState({
@@ -410,7 +248,7 @@ export default function App() {
       if (type === 'checkbox') {
         parsedValue = (e.target as HTMLInputElement).checked;
       } else {
-        parsedValue = ['id', 'sectionType', 'connection', 'holePattern', 'alloy', 'betaMode', 'sigmaAtMode', 'foMode'].includes(name) ? value : Number(value);
+        parsedValue = ['id', 'sectionType', 'connection', 'holePattern', 'eurocodeAlloy', 'is8147Alloy', 'betaMode', 'sigmaAtMode', 'foMode'].includes(name) ? value : Number(value);
       }
       const newInputs = { ...prev, [name]: parsedValue };
 
@@ -421,34 +259,42 @@ export default function App() {
         newInputs.fo = newInputs.fy;
       }
 
-      if (name === 'alloy' || name === 'thickness') {
-        const alloyVal = name === 'alloy' ? parsedValue : prev.alloy;
+      if (name === 'eurocodeAlloy' || name === 'thickness' || name === 'sectionType') {
+        const ecAlloyVal = name === 'eurocodeAlloy' ? parsedValue : prev.eurocodeAlloy;
         const tVal = name === 'thickness' ? parsedValue : prev.thickness;
+        const sectionTypeVal = name === 'sectionType' ? parsedValue : prev.sectionType;
 
-        const alloyData = ALLOY_DATABASE.find(a => a.name === alloyVal) || ALLOY_DATABASE.find(a => a.id === 'Generic');
-        if (alloyData) {
-          const ecProps = alloyData.eurocode(tVal);
+        const ecAlloyData = EUROCODE_ALLOYS.find(a => a.name === ecAlloyVal) || EUROCODE_ALLOYS.find(a => a.id === 'Generic/Unspecified');
+        if (ecAlloyData) {
+          const ecProps = ecAlloyData.getProps(tVal, sectionTypeVal);
           newInputs.fy = ecProps.fo;
           newInputs.fu = ecProps.fu;
           newInputs.rho_o = ecProps.rho_o;
           newInputs.rho_u = ecProps.rho_u;
-          
+
           if (newInputs.foMode === 'Auto') newInputs.fo = newInputs.fy;
-          
-          if (newInputs.sigmaAtMode === 'Auto' && alloyData.is8147.sigma_at > 0) {
-            newInputs.sigma_at = alloyData.is8147.sigma_at;
-            newInputs.tau_a = alloyData.is8147.tau_a;
-            newInputs.sigma_at_rupture = alloyData.is8147.sigma_at_rupture;
-          }
+        }
+      }
+
+      if (name === 'is8147Alloy' || name === 'thickness' || name === 'sectionType') {
+        const isAlloyVal = name === 'is8147Alloy' ? parsedValue : prev.is8147Alloy;
+        const tVal = name === 'thickness' ? parsedValue : prev.thickness;
+        const sectionTypeVal = name === 'sectionType' ? parsedValue : prev.sectionType;
+
+        const isAlloyData = IS8147_ALLOYS.find(a => a.name === isAlloyVal) || IS8147_ALLOYS.find(a => a.id === 'Generic/Unspecified');
+        if (isAlloyData && newInputs.sigmaAtMode === 'Auto') {
+          const isProps = isAlloyData.getProps(tVal, sectionTypeVal);
+          newInputs.sigma_at = isProps.sigma_at;
+          newInputs.sigma_at_rupture = isProps.sigma_at_rupture;
         }
       }
 
       if (name === 'sigmaAtMode' && parsedValue === 'Auto') {
-        const alloyData = ALLOY_DATABASE.find(a => a.name === newInputs.alloy) || ALLOY_DATABASE.find(a => a.id === 'Generic');
-        if (alloyData && alloyData.is8147.sigma_at > 0) {
-          newInputs.sigma_at = alloyData.is8147.sigma_at;
-          newInputs.tau_a = alloyData.is8147.tau_a;
-          newInputs.sigma_at_rupture = alloyData.is8147.sigma_at_rupture;
+        const isAlloyData = IS8147_ALLOYS.find(a => a.name === newInputs.is8147Alloy) || IS8147_ALLOYS.find(a => a.id === 'Generic/Unspecified');
+        if (isAlloyData) {
+          const isProps = isAlloyData.getProps(newInputs.thickness, newInputs.sectionType);
+          newInputs.sigma_at = isProps.sigma_at;
+          newInputs.sigma_at_rupture = isProps.sigma_at_rupture;
         }
       }
 
@@ -473,6 +319,61 @@ export default function App() {
     { name: 'Final', 'IS 8147': results.is8147.final, 'Eurocode': results.eurocode.final },
   ];
 
+
+  const generateParametricData = () => {
+    const data = [];
+    let minVal, maxVal, steps;
+
+    if (paramVar === 'noOfHoles') {
+      minVal = Math.max(1, inputs.noOfHoles - 5);
+      maxVal = inputs.noOfHoles + 5;
+      steps = maxVal - minVal;
+    } else {
+      const baseVal = inputs[paramVar];
+      minVal = baseVal * 0.5; // -50%
+      maxVal = baseVal * 1.5; // +50%
+      steps = 20;
+    }
+
+    const stepSize = (maxVal - minVal) / steps;
+
+    for (let i = 0; i <= steps; i++) {
+      let val = minVal + i * stepSize;
+      if (paramVar === 'noOfHoles') val = Math.round(val);
+
+      const testInputs = { ...inputs, [paramVar]: val };
+
+      if (paramVar === 'thickness') {
+        const ecAlloyData = EUROCODE_ALLOYS.find(a => a.name === testInputs.eurocodeAlloy) || EUROCODE_ALLOYS.find(a => a.id === 'Generic/Unspecified');
+        if (ecAlloyData) {
+          const ecProps = ecAlloyData.getProps(val, testInputs.sectionType);
+          testInputs.fy = ecProps.fo;
+          testInputs.fu = ecProps.fu;
+          testInputs.rho_o = ecProps.rho_o;
+          testInputs.rho_u = ecProps.rho_u;
+          if (testInputs.foMode === 'Auto') testInputs.fo = testInputs.fy;
+        }
+
+        const isAlloyData = IS8147_ALLOYS.find(a => a.name === testInputs.is8147Alloy) || IS8147_ALLOYS.find(a => a.id === 'Generic/Unspecified');
+        if (isAlloyData && testInputs.sigmaAtMode === 'Auto') {
+          const isProps = isAlloyData.getProps(val, testInputs.sectionType);
+          testInputs.sigma_at = isProps.sigma_at;
+          testInputs.sigma_at_rupture = isProps.sigma_at_rupture;
+        }
+      }
+
+      const results = calculateConnectionCapacities(testInputs);
+      data.push({
+        paramValue: paramVar === 'noOfHoles' ? val : Number(val.toFixed(2)),
+        Eurocode: Number(results.eurocode.final.toFixed(2)),
+        IS8147: Number(results.is8147.final.toFixed(2)),
+      });
+    }
+    return data;
+  };
+
+  const parametricData = activeTab === 'parametric' ? generateParametricData() : [];
+
   return (
     <div className="min-h-screen bg-neutral-100 text-neutral-900 font-sans p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -489,7 +390,26 @@ export default function App() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="flex space-x-1 bg-neutral-200/50 p-1 rounded-xl w-fit">
+          <button 
+            onClick={() => setActiveTab('calculator')} 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'calculator' ? 'bg-white text-indigo-700 shadow-sm' : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200'}`}
+          >
+            <Calculator className="w-4 h-4" />
+            Calculator
+          </button>
+          <button 
+            onClick={() => setActiveTab('parametric')} 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'parametric' ? 'bg-white text-indigo-700 shadow-sm' : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200'}`}
+          >
+            <LineChartIcon className="w-4 h-4" />
+            Parametric Analysis
+          </button>
+        </div>
+
+        {activeTab === 'calculator' && (
+        <div className="calculator-content">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           <div className="lg:col-span-7 space-y-6">
             <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 overflow-hidden">
@@ -525,9 +445,17 @@ export default function App() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-neutral-500 uppercase">Alloy</label>
-                  <select name="alloy" value={inputs.alloy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
-                    {ALLOY_DATABASE.map(a => (
+                  <label className="text-xs font-semibold text-neutral-500 uppercase">Eurocode Alloy</label>
+                  <select name="eurocodeAlloy" value={inputs.eurocodeAlloy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
+                    {EUROCODE_ALLOYS.map(a => (
+                      <option key={a.id} value={a.name}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-neutral-500 uppercase">IS 8147 Alloy</label>
+                  <select name="is8147Alloy" value={inputs.is8147Alloy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none">
+                    {IS8147_ALLOYS.map(a => (
                       <option key={a.id} value={a.name}>{a.name}</option>
                     ))}
                   </select>
@@ -617,7 +545,7 @@ export default function App() {
                   <input type="number" name="fy" value={inputs.fy} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-neutral-500 uppercase">fu (MPa)</label>
+                  <label className="text-xs font-semibold text-neutral-500 uppercase">fu (MPa) - Eurocode</label>
                   <input type="number" name="fu" value={inputs.fu} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                 </div>
 
@@ -638,7 +566,7 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-blue-700 uppercase">Yield (σ_at) MPa</label>
                       <input type="number" name="sigma_at" value={inputs.sigma_at} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
@@ -646,10 +574,6 @@ export default function App() {
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-blue-700 uppercase">Rupture (σ_at_rupture) MPa</label>
                       <input type="number" name="sigma_at_rupture" value={inputs.sigma_at_rupture} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-blue-700 uppercase">Shear (τ_a) MPa</label>
-                      <input type="number" name="tau_a" value={inputs.tau_a} onChange={handleInputChange} readOnly={inputs.sigmaAtMode === 'Auto'} className={`w-full px-3 py-2 border border-blue-300 rounded-lg outline-none ${inputs.sigmaAtMode === 'Auto' ? 'bg-blue-100 text-blue-800 cursor-not-allowed' : 'bg-white focus:ring-2 focus:ring-blue-500'}`} />
                     </div>
                   </div>
 
@@ -932,9 +856,9 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li><strong>IS 8147 (Permissible Stress):</strong> min[ (0.6σ_at × Agv + σ_at × Ant), (0.6σ_at × Anv + σ_at × Agt) ]</li>
-                      <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + min[ (fo × Agv) / (√3 × γM1), (fu × Anv) / (√3 × γM2) ]</li>
-                      <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The permissible stress approach is assumed for comparison.</li>
+                      <li><strong>IS 8147 (Adopted from IS 800:2007):</strong> min[ (Avg × fy)/(√3 × 1.1) + (0.9 × Ant × fu)/1.25, (0.9 × Anv × fu)/(√3 × 1.25) + (Atg × fy)/1.1 ]</li>
+                      <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + (fy × Anv) / (√3 × γM1)</li>
+                      <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The IS 800:2007 limit state approach is adopted as requested.</li>
                     </ul>
                   </div>
                 </div>
@@ -1038,6 +962,144 @@ export default function App() {
 
           </div>
         </div>
+
+        {/* Calculation Report & References */}
+        <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 overflow-hidden mt-8">
+          <div className="bg-neutral-50 px-6 py-4 border-b border-neutral-200 flex justify-between items-center">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+              Calculation Report & References
+            </h2>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+              <h3 className="text-md font-semibold text-indigo-700 border-b pb-2">Eurocode EN 1999-1-1:2007</h3>
+              <ul className="space-y-3 text-sm text-neutral-700">
+                <li className="flex flex-col">
+                  <span className="font-medium text-neutral-900">Yielding (N_pl,Rd)</span>
+                  <span className="text-neutral-500 text-xs mt-1">Clause 6.2.3 (2) a</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_pl,Rd = (Ag * fy) / γM0</span>
+                </li>
+                <li className="flex flex-col">
+                  <span className="font-medium text-neutral-900">Rupture (N_u,Rd)</span>
+                  <span className="text-neutral-500 text-xs mt-1">Clause 6.2.3 (2) b</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (Aeff * fu) / γM2</span>
+                  <span className="text-xs text-neutral-500 mt-1">Where Aeff = An * β (Shear lag factor β = {derived.beta})</span>
+                </li>
+                {inputs.connection === 'Bolted' && (
+                  <li className="flex flex-col">
+                    <span className="font-medium text-neutral-900">Block Tearing (V_eff,Rd)</span>
+                    <span className="text-neutral-500 text-xs mt-1">Clause 8.5.6 (2)</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">V_eff,Rd = (fu * Ant) / γM2 + (fy * Anv) / (√3 * γM1)</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div className="space-y-4">
+              <h3 className="text-md font-semibold text-emerald-700 border-b pb-2">IS 8147:1976</h3>
+              <ul className="space-y-3 text-sm text-neutral-700">
+                <li className="flex flex-col">
+                  <span className="font-medium text-neutral-900">Axial Tension (Yielding)</span>
+                  <span className="text-neutral-500 text-xs mt-1">Clause 5.1.1</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">P = Ag * σ_at</span>
+                </li>
+                <li className="flex flex-col">
+                  <span className="font-medium text-neutral-900">Axial Tension (Rupture)</span>
+                  <span className="text-neutral-500 text-xs mt-1">Clause 5.1.2</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">P = Aeff * σ_at_rupture</span>
+                  {inputs.connection === 'Bolted' && inputs.sectionType !== 'Plate' && (
+                    <span className="text-xs text-neutral-500 mt-1">
+                      Where Aeff = a1 + a2 * k (k = {derived.isK.toFixed(3)})
+                    </span>
+                  )}
+                </li>
+                {inputs.connection === 'Bolted' && (
+                  <li className="flex flex-col">
+                    <span className="font-medium text-neutral-900">Block Shear</span>
+                    <span className="text-neutral-500 text-xs mt-1">IS 800:2007 Clause 6.4.1 (Adopted)</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db1 = (Avg * fy) / (√3 * 1.1) + (0.9 * Ant * fu) / 1.25</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db2 = (0.9 * Anv * fu) / (√3 * 1.25) + (Atg * fy) / 1.1</span>
+                    <span className="text-xs text-neutral-500 mt-1">T_db = min(T_db1, T_db2)</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+
+        </div>
+        )}
+
+        {activeTab === 'parametric' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 overflow-hidden p-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
+                    <Sliders className="w-5 h-5 text-indigo-600" />
+                    Parametric Study
+                  </h2>
+                  <p className="text-sm text-neutral-500 mt-1">Analyze how connection capacity changes with varying parameters.</p>
+                </div>
+                <div className="flex items-center gap-3 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
+                  <label className="text-sm font-medium text-neutral-700">Vary Parameter:</label>
+                  <select 
+                    value={paramVar} 
+                    onChange={(e) => setParamVar(e.target.value)}
+                    className="bg-white border border-neutral-300 text-neutral-900 text-sm rounded-md focus:ring-indigo-500 focus:border-indigo-500 block p-2 outline-none"
+                  >
+                    <option value="thickness">Thickness (t)</option>
+                    <option value="width">Width (w)</option>
+                    <option value="dia">Bolt Diameter (d)</option>
+                    <option value="noOfHoles">Number of Bolts (n)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="h-[500px] w-full mt-8">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={parametricData}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e5e5" />
+                    <XAxis 
+                      dataKey="paramValue" 
+                      label={{ value: paramVar === 'thickness' ? 'Thickness (mm)' : paramVar === 'width' ? 'Width (mm)' : paramVar === 'dia' ? 'Bolt Diameter (mm)' : 'Number of Bolts', position: 'insideBottom', offset: -10 }} 
+                      tick={{ fill: '#6b7280' }}
+                      tickMargin={10}
+                    />
+                    <YAxis 
+                      label={{ value: 'Capacity (kN)', angle: -90, position: 'insideLeft', offset: -10 }} 
+                      tick={{ fill: '#6b7280' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value) => [`${value} kN`]}
+                      labelFormatter={(label) => `${paramVar === 'thickness' ? 'Thickness' : paramVar === 'width' ? 'Width' : paramVar === 'dia' ? 'Diameter' : 'Bolts'}: ${label}`}
+                    />
+                    <Legend verticalAlign="top" height={36} iconType="circle" />
+                    <Line type="monotone" dataKey="Eurocode" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} name="Eurocode EN 1999" />
+                    <Line type="monotone" dataKey="IS8147" stroke="#e11d48" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} name="IS 8147:1976" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div className="mt-6 bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                <h3 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                  <Info className="w-4 h-4" />
+                  Analysis Insights
+                </h3>
+                <p className="text-sm text-indigo-800">
+                  This graph displays the governing design capacity (minimum of Yield, Rupture, and Block Shear) for both standards as the selected parameter varies from -50% to +50% of its current value ({inputs[paramVar]}). 
+                  {paramVar === 'thickness' && " Note that changing thickness may also alter the material properties (fy, fu, permissible stresses) based on the selected alloys' specifications."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
