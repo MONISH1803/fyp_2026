@@ -107,22 +107,24 @@ export function calculateConnectionCapacities(inputs: any) {
   // Yielding (N_pl,Rd): (Ag * fy) / gammaM0
   const ecYield = (Ag * fy_eff) / gammaM0 / 1000;
   
-  // Constraint: Apply beta (Shear Lag) ONLY to Rupture. beta = 0.65 for 2 bolts/line and 0.70 for 3+ bolts/line.
+  // Constraint: Apply beta (Shear Lag) ONLY to Rupture.
   // EN 1999-1-1 Clause 6.2.3 (2) b - only applies to unsymmetrically connected members like Single Angles
   let beta = 1.0;
   if (connection === 'Bolted' && inputs.sectionType === 'Single Angle') {
-    beta = n_line >= 3 ? 0.70 : (n_line === 2 ? 0.65 : 1.0);
+    // User-requested mapping for bolt rows in line of force:
+    // 1 bolt: 0.40, 2 bolts: 0.65, 3+ bolts: 0.70
+    beta = n_line >= 3 ? 0.70 : (n_line === 2 ? 0.65 : 0.40);
   }
   
-  // Rupture (N_u,Rd): (0.9 × Aeff × fu) / gammaM2
+  // Rupture (N_u,Rd): (Aeff × fu) / gammaM2
   const Aeff = An * beta;
-  const ecRupture = (0.9 * Aeff * fu_eff) / gammaM2 / 1000;
+  const ecRupture = (Aeff * fu_eff) / gammaM2 / 1000;
   
-  // Block Shear (V_eff,Rd): (fu * Ant / gammaM2) + (fy * Anv / (sqrt(3) * gammaM1))
+  // Block Shear (V_eff,Rd): (fu * Ant / gammaM2) + (fy * Anv / (sqrt(3) * gammaM0))
   // Constraint: Do NOT apply beta to Block Shear. Use uniform tension distribution factor (u_bs = 1.0).
   let ecBlockShear = 0;
   if (connection === 'Bolted' && n_line > 0 && p > 0) {
-    ecBlockShear = ((fu_eff * Ant) / gammaM2 + (fy_eff * Anv) / (Math.sqrt(3) * gammaM1)) / 1000;
+    ecBlockShear = ((fu_eff * Ant) / gammaM2 + (fy_eff * Anv) / (Math.sqrt(3) * gammaM0)) / 1000;
   }
 
   // 3. IS 8147:1976 (Working Stress) Implementation
@@ -136,12 +138,20 @@ export function calculateConnectionCapacities(inputs: any) {
     if (inputs.sectionType === 'Single Angle') {
       const a1 = (inputs.leg1 - thickness / 2) * thickness - (n * dh * thickness);
       const a2 = (inputs.leg2 - thickness / 2) * thickness;
-      isK = (3 * a1) / (3 * a1 + a2);
+      // IS 800 Cl. 6.3.3 bolt-count rules (user-requested):
+      // 1 bolt: kt=0.4, 2 bolts: kt=0.5, 3+ bolts: formula
+      if (n <= 1) isK = 0.4;
+      else if (n === 2) isK = 0.5;
+      else isK = (3 * a1) / (3 * a1 + a2);
       isAeff = a1 + a2 * isK;
     } else if (inputs.sectionType === 'Double Angle') {
       const a1 = 2 * ((inputs.leg1 - thickness / 2) * thickness - (n * dh * thickness));
       const a2 = 2 * (inputs.leg2 - thickness / 2) * thickness;
-      isK = (5 * a1) / (5 * a1 + a2);
+      // IS 800 Cl. 6.3.3 bolt-count rules for double-angle (user-requested):
+      // 1 bolt: kt=0.5, 2 bolts: kt=0.6, 3+ bolts: formula
+      if (n <= 1) isK = 0.5;
+      else if (n === 2) isK = 0.6;
+      else isK = (5 * a1) / (5 * a1 + a2);
       isAeff = a1 + a2 * isK;
     }
   }
@@ -860,7 +870,7 @@ export default function App() {
                     <h3 className="font-bold text-neutral-900 mb-2">Eurocode EN 1999 (Limit State)</h3>
                     <ul className="list-disc pl-5 space-y-1">
                       <li><strong>Yield:</strong> N_pl,Rd = (Ag × fy) / γM0</li>
-                      <li><strong>Rupture:</strong> N_u,Rd = (0.9 × fu × Aeff) / γM2</li>
+                      <li><strong>Rupture:</strong> N_u,Rd = (fu × Aeff) / γM2</li>
                       <li><strong>Effective Area:</strong> Aeff = β × An</li>
                     </ul>
                   </div>
@@ -868,7 +878,7 @@ export default function App() {
                     <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
                     <ul className="list-disc pl-5 space-y-1">
                       <li><strong>IS 8147 (Adopted from IS 800:2007):</strong> min[ (Avg × σ_at)/√3 + (0.9 × Ant × σ_at_rupture), (0.9 × Anv × σ_at_rupture)/√3 + (Atg × σ_at) ]</li>
-                      <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + (fy × Anv) / (√3 × γM1)</li>
+                      <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + (fy × Anv) / (√3 × γM0)</li>
                       <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The IS 800:2007 limit state approach is adopted as requested.</li>
                     </ul>
                   </div>
@@ -994,14 +1004,14 @@ export default function App() {
                 <li className="flex flex-col">
                   <span className="font-medium text-neutral-900">Rupture (N_u,Rd)</span>
                   <span className="text-neutral-500 text-xs mt-1">Clause 6.2.3 (2) b</span>
-                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (0.9 × Aeff × fu) / γM2</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (Aeff × fu) / γM2</span>
                   <span className="text-xs text-neutral-500 mt-1">Where Aeff = An * β (Shear lag factor β = {derived.beta})</span>
                 </li>
                 {inputs.connection === 'Bolted' && (
                   <li className="flex flex-col">
                     <span className="font-medium text-neutral-900">Block Tearing (V_eff,Rd)</span>
                     <span className="text-neutral-500 text-xs mt-1">Clause 8.5.6 (2)</span>
-                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">V_eff,Rd = (fu * Ant) / γM2 + (fy * Anv) / (√3 * γM1)</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">V_eff,Rd = (fu * Ant) / γM2 + (fy * Anv) / (√3 * γM0)</span>
                   </li>
                 )}
               </ul>
