@@ -111,9 +111,9 @@ export function calculateConnectionCapacities(inputs: any) {
     beta = n_line >= 3 ? 0.70 : (n_line === 2 ? 0.65 : 1.0);
   }
   
-  // Rupture (N_u,Rd): (Aeff * fu) / gammaM2
+  // Rupture (N_u,Rd): (0.9 × Aeff × fu) / gammaM2
   const Aeff = An * beta;
-  const ecRupture = (Aeff * fu_eff) / gammaM2 / 1000;
+  const ecRupture = (0.9 * Aeff * fu_eff) / gammaM2 / 1000;
   
   // Block Shear (V_eff,Rd): (fu * Ant / gammaM2) + (fy * Anv / (sqrt(3) * gammaM1))
   // Constraint: Do NOT apply beta to Block Shear. Use uniform tension distribution factor (u_bs = 1.0).
@@ -145,14 +145,14 @@ export function calculateConnectionCapacities(inputs: any) {
   const isRupture = (isAeff * sigma_at_rupture) / 1000;
   
   // Block Shear: IS 800:2007 Clause 6.4.1 implementation (since IS 8147 doesn't specify)
-  // Tdb1 = (Avg * fy / (sqrt(3) * 1.1) + 0.9 * Ant * fu / 1.25)
-  // Tdb2 = (0.9 * Anv * fu / (sqrt(3) * 1.25) + Atg * fy / 1.1)
+  // Tdb1 = (Avg * fy / (sqrt(3) * gammaM1) + 0.9 * Ant * fu / gammaM2)
+  // Tdb2 = (0.9 * Anv * fu / (sqrt(3) * gammaM2) + Atg * fy / gammaM1)
   let isBlockShear = 0;
   let isTdb1 = 0;
   let isTdb2 = 0;
   if (connection === 'Bolted' && n_line > 0 && p > 0) {
-    isTdb1 = ((Avg * fy_eff) / (Math.sqrt(3) * 1.1) + (0.9 * Ant * fu_eff) / 1.25) / 1000;
-    isTdb2 = ((0.9 * Anv * fu_eff) / (Math.sqrt(3) * 1.25) + (Atg * fy_eff) / 1.1) / 1000;
+    isTdb1 = ((Avg * fy_eff) / (Math.sqrt(3) * gammaM1) + (0.9 * Ant * fu_eff) / gammaM2) / 1000;
+    isTdb2 = ((0.9 * Anv * fu_eff) / (Math.sqrt(3) * gammaM2) + (Atg * fy_eff) / gammaM1) / 1000;
     isBlockShear = Math.min(isTdb1, isTdb2);
   }
 
@@ -856,7 +856,7 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li><strong>IS 8147 (Adopted from IS 800:2007):</strong> min[ (Avg × fy)/(√3 × 1.1) + (0.9 × Ant × fu)/1.25, (0.9 × Anv × fu)/(√3 × 1.25) + (Atg × fy)/1.1 ]</li>
+                      <li><strong>IS 8147 (Adopted from IS 800:2007):</strong> min[ (Avg × fy)/(√3 × {inputs.gammaM1}) + (0.9 × Ant × fu)/{inputs.gammaM2}, (0.9 × Anv × fu)/(√3 × {inputs.gammaM2}) + (Atg × fy)/{inputs.gammaM1} ]</li>
                       <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + (fy × Anv) / (√3 × γM1)</li>
                       <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The IS 800:2007 limit state approach is adopted as requested.</li>
                     </ul>
@@ -983,7 +983,7 @@ export default function App() {
                 <li className="flex flex-col">
                   <span className="font-medium text-neutral-900">Rupture (N_u,Rd)</span>
                   <span className="text-neutral-500 text-xs mt-1">Clause 6.2.3 (2) b</span>
-                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (Aeff * fu) / γM2</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (0.9 × Aeff × fu) / γM2</span>
                   <span className="text-xs text-neutral-500 mt-1">Where Aeff = An * β (Shear lag factor β = {derived.beta})</span>
                 </li>
                 {inputs.connection === 'Bolted' && (
@@ -1017,8 +1017,8 @@ export default function App() {
                   <li className="flex flex-col">
                     <span className="font-medium text-neutral-900">Block Shear</span>
                     <span className="text-neutral-500 text-xs mt-1">IS 800:2007 Clause 6.4.1 (Adopted)</span>
-                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db1 = (Avg * fy) / (√3 * 1.1) + (0.9 * Ant * fu) / 1.25</span>
-                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db2 = (0.9 * Anv * fu) / (√3 * 1.25) + (Atg * fy) / 1.1</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db1 = (Avg * fy) / (√3 * {inputs.gammaM1}) + (0.9 * Ant * fu) / {inputs.gammaM2}</span>
+                    <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db2 = (0.9 * Anv * fu) / (√3 * {inputs.gammaM2}) + (Atg * fy) / {inputs.gammaM1}</span>
                     <span className="text-xs text-neutral-500 mt-1">T_db = min(T_db1, T_db2)</span>
                   </li>
                 )}
