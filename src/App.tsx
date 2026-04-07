@@ -4,8 +4,9 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { EUROCODE_ALLOYS, IS8147_ALLOYS } from './data/alloys';
 import AlloyMappingPage from './pages/AlloyMappingPage';
 
-/** Debug session c49122: mirror to console when ingest is unreachable (e.g. Vercel cannot POST to 127.0.0.1). */
+/** Local-only debug helper (no-op in production builds). */
 function agentDebugLog(payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
   const body = JSON.stringify({ sessionId: 'c49122', ...payload, timestamp: Date.now() });
   fetch('http://127.0.0.1:7629/ingest/a5d7636b-0cf7-4136-9036-63f40129bb20', {
     method: 'POST',
