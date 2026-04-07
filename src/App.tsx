@@ -3,6 +3,7 @@ import { Calculator, AlertCircle, Info, ChevronDown, ChevronUp, BookOpen, LineCh
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine, Area, ReferenceDot } from 'recharts';
 import { EUROCODE_ALLOYS, IS8147_ALLOYS } from './data/alloys';
 import AlloyMappingPage from './pages/AlloyMappingPage';
+import { evaluateBoltedRupturePaths, type RuptureInputs } from './ruptureNetSection';
 
 /** Local-only debug helper (no-op in production builds). */
 function agentDebugLog(payload: Record<string, unknown>) {
@@ -25,110 +26,269 @@ function getConnectedLegWidth(inputs: any): number {
   return connectedLeg === 'Leg 2' ? Number(inputs.leg2) : Number(inputs.leg1);
 }
 
-function evaluateBoltCrossSectionGeometry(inputs: any) {
+/**
+ * Single source of truth for Eurocode shear-lag β used in Aeff = β × An.
+ * Symmetric double-angle bolted connections: β = 1 (no 1 − x/L reduction).
+ * Other bolted sections: β = max(0, min(1 − x/L, 1)); x = 0 → β = 1.
+ */
+export function getBeta(
+  sectionType: string,
+  x: number,
+  L: number,
+  connectionType: string
+): number {
+  if (connectionType !== 'Bolted') {
+    return 1.0;
+  }
+  if (sectionType === 'Double Angle') {
+    return 1.0;
+  }
+  const xv = Number(x);
+  const Lv = Number(L);
+  if (!Number.isFinite(xv) || !Number.isFinite(Lv)) {
+    return 1.0;
+  }
+  if (Math.abs(xv) < 1e-9) {
+    return 1.0;
+  }
+  if (Lv <= 0) {
+    return 1.0;
+  }
+  return Math.min(1, Math.max(0, 1 - xv / Lv));
+}
+
+/** Straight transverse row: enforce b ≥ 2e + (n−1)g with effective e, g (IS-style detailing minima). */
+export function validateStraightBoltLayout({
+  b,
+  eUser,
+  gUser,
+  d,
+  dh,
+  nCross,
+}: {
+  b: number;
+  eUser: number;
+  gUser: number;
+  d: number;
+  dh: number;
+  nCross: number;
+}) {
+  const eMin = 1.5 * dh;
+  const gMin = 2.5 * d;
+  const eEff = Math.max(eUser, eMin);
+  const gEff = Math.max(gUser, gMin);
+
+  const clearWidth = b - 2 * eEff;
+  const nMax = clearWidth >= 0 ? Math.floor(clearWidth / gEff) + 1 : 0;
+  const requiredWidth = 2 * eEff + Math.max(0, nCross - 1) * gEff;
+  const noBoltCanFit = b < 2 * eEff - 1e-9;
+
+  const isValid = !noBoltCanFit && nCross <= nMax && Number.isFinite(nCross) && nCross >= 0;
+
+  const title = 'Straight cross-section width check';
+
+  if (noBoltCanFit && nCross > 0) {
+    return {
+      type: 'Straight' as const,
+      title,
+      eMin,
+      gMin,
+      eEff,
+      gEff,
+      nMax: 0,
+      requiredWidth,
+      noBoltCanFit: true,
+      isValid: false,
+      message:
+        'Straight cross-section: no bolt can fit for the given connected width and minimum edge distances.',
+    };
+  }
+
+  if (nCross > nMax) {
+    return {
+      type: 'Straight' as const,
+      title,
+      eMin,
+      gMin,
+      eEff,
+      gEff,
+      nMax,
+      requiredWidth,
+      noBoltCanFit: false,
+      isValid: false,
+      message: `Straight cross-section: too many bolts in one row. Maximum allowed n_max = ${nMax} (required width for n = ${nCross} would be ${requiredWidth.toFixed(2)} mm vs b = ${b.toFixed(2)} mm).`,
+    };
+  }
+
+  return {
+    type: 'Straight' as const,
+    title,
+    eMin,
+    gMin,
+    eEff,
+    gEff,
+    nMax,
+    requiredWidth,
+    noBoltCanFit: false,
+    isValid,
+    message:
+      'Straight layout fits within connected width (straight transverse cross-section row).',
+  };
+}
+
+/**
+ * Staggered: do NOT apply the straight-row width bolt cap globally. Only check local spacing minima;
+ * governing tension rupture comes from candidate net-section paths (straight vs zig-zag), not this panel.
+ */
+export function validateStaggeredBoltLayout({
+  eUser,
+  gUser,
+  staggerP,
+  linePitch,
+  rows,
+  d,
+  dh,
+}: {
+  eUser: number;
+  gUser: number;
+  staggerP: number;
+  linePitch: number;
+  rows: number;
+  d: number;
+  dh: number;
+}) {
+  const eMin = 1.5 * dh;
+  const gMin = 2.5 * d;
+  const pMin = 2.5 * d;
+
+  const eEff = Math.max(eUser, eMin);
+  const gEff = Math.max(gUser, gMin);
+  const pStaggerEff = Math.max(staggerP, pMin);
+  const linePitchEff = Math.max(linePitch, pMin);
+
+  const staggerPitchOk = staggerP >= pMin;
+  const linePitchOk = rows <= 1 || linePitch >= pMin;
+
+  const isValid =
+    eUser >= eMin && gUser >= gMin && staggerPitchOk && linePitchOk;
+
+  const note =
+    'For staggered patterns, the straight cross-section bolt-limit rule is not applied globally; rupture is controlled by candidate zig-zag net-section paths.';
+
+  if (isValid) {
+    return {
+      type: 'Staggered' as const,
+      title: 'Staggered spacing check (not straight-row width limit)',
+      eMin,
+      gMin,
+      pMin,
+      eEff,
+      gEff,
+      pStaggerEff,
+      linePitchEff,
+      staggerP,
+      linePitch,
+      rows,
+      isValid: true,
+      message:
+        'Staggered layout satisfies minimum edge, gauge, and pitch rules. Governing rupture is checked through zig-zag path analysis.',
+      note,
+    };
+  }
+
+  const parts: string[] = [];
+  if (eUser < eMin) parts.push(`edge e < e_min (${eMin.toFixed(2)} mm)`);
+  if (gUser < gMin) parts.push(`gauge g < g_min (${gMin.toFixed(2)} mm)`);
+  if (!staggerPitchOk) parts.push(`stagger pitch p < p_min (${pMin.toFixed(2)} mm)`);
+  if (!linePitchOk) parts.push(`line pitch s < p_min (${pMin.toFixed(2)} mm)`);
+
+  return {
+    type: 'Staggered' as const,
+    title: 'Staggered spacing check (not straight-row width limit)',
+    eMin,
+    gMin,
+    pMin,
+    eEff,
+    gEff,
+    pStaggerEff,
+    linePitchEff,
+    staggerP,
+    linePitch,
+    rows,
+    isValid: false,
+    message: `Staggered layout violates minimum spacing: ${parts.join('; ')}.`,
+    note,
+  };
+}
+
+/** Bolt layout validation: straight uses transverse width rule; staggered uses spacing minima only. */
+function evaluateBoltLayoutGeometry(inputs: any) {
   const d = Number(inputs.dia);
   const dh = d + 2;
-  const n = Number(inputs.noOfHoles);
-  const eUser = Number(inputs.e);
-  const gUser = Number(inputs.g);
-
   let b = Number(inputs.width);
   if (inputs.sectionType === 'Single Angle' || inputs.sectionType === 'Double Angle') {
     b = getConnectedLegWidth(inputs);
   }
 
-  const eMin = 1.5 * dh;
-  const gMin = 2.5 * d;
-  const effectiveEdge = Math.max(eUser, eMin);
-  const effectiveGauge = Math.max(gUser, gMin);
-
-  let nMax = 0;
-  let noBoltCanFit = false;
-  if (b < 2 * effectiveEdge) {
-    nMax = 0;
-    noBoltCanFit = true;
-  } else {
-    nMax = Math.floor((b - 2 * effectiveEdge) / effectiveGauge) + 1;
-    nMax = Math.max(0, nMax);
+  if (inputs.connection !== 'Bolted') {
+    return {
+      pattern: 'Welded' as const,
+      invalid: false,
+      d,
+      dh,
+      b,
+    };
   }
 
-  const invalid = inputs.connection === 'Bolted' && (noBoltCanFit || n > nMax);
+  const eUser = Number(inputs.e);
+  const gUser = Number(inputs.g);
+  const nCross = Number(inputs.noOfHoles);
+
+  if (inputs.holePattern === 'Straight') {
+    const straight = validateStraightBoltLayout({ b, eUser, gUser, d, dh, nCross });
+    return {
+      pattern: 'Straight' as const,
+      invalid: !straight.isValid,
+      d,
+      dh,
+      b,
+      straight,
+      eMin: straight.eMin,
+      gMin: straight.gMin,
+      effectiveEdge: straight.eEff,
+      effectiveGauge: straight.gEff,
+      nMax: straight.nMax,
+      noBoltCanFit: straight.noBoltCanFit,
+      helper: straight.message,
+    };
+  }
+
+  const rows = Number(inputs.rows);
+  const staggerP = Number(inputs.stagger_p);
+  const linePitch = Number(inputs.s);
+  const stagger = validateStaggeredBoltLayout({
+    eUser,
+    gUser,
+    staggerP,
+    linePitch,
+    rows,
+    d,
+    dh,
+  });
 
   return {
+    pattern: 'Staggered' as const,
+    invalid: !stagger.isValid,
     d,
     dh,
     b,
-    eMin,
-    gMin,
-    effectiveEdge,
-    effectiveGauge,
-    nMax,
-    invalid,
-    noBoltCanFit,
-    helper: 'Check based on width >= 2e + (n-1)g',
-  };
-}
-
-// Sample check for staggered rupture math (requested validation case):
-// b=100, t=10, dh=18, n=2, p=25, g=50
-// Straight bn=64 -> An=640 ; Zig-zag bn=67.125 -> An=671.25 ; governing = Straight.
-function buildRupturePaths(inputs: any, bPath: number, dh: number) {
-  const t = Number(inputs.thickness);
-  const n = Number(inputs.noOfHoles);
-  const staggerEnabled = inputs.connection === 'Bolted' && inputs.holePattern === 'Staggered';
-  const sp = Number(inputs.stagger_p);
-  const sg = Number(inputs.stagger_g);
-  const hasStagger = staggerEnabled && sp > 0 && sg > 0;
-  const nLine = Number(inputs.rows);
-
-  const paths: any[] = [];
-  const straightBn = clampPositive(bPath - n * dh);
-  paths.push({
-    id: 'R1',
-    type: 'Straight',
-    formula: 'bn = b - n*dh',
-    holeDeductionTerm: n * dh,
-    staggerAdditionTerm: 0,
-    bn: straightBn,
-    an: straightBn * t,
-    transitions: 0,
-  });
-
-  if (hasStagger) {
-    const staggerTerm = (sp * sp) / (4 * sg);
-    const zigBn = clampPositive(bPath - n * dh + staggerTerm);
-    paths.push({
-      id: 'R2',
-      type: 'Single zig-zag',
-      formula: 'bn = b - n*dh + p^2/(4g)',
-      holeDeductionTerm: n * dh,
-      staggerAdditionTerm: staggerTerm,
-      bn: zigBn,
-      an: zigBn * t,
-      transitions: 1,
-    });
-
-    const multiTransitions = Math.max(0, nLine - 1);
-    if (multiTransitions >= 2) {
-      const multiStaggerTerm = multiTransitions * staggerTerm;
-      const multiBn = clampPositive(bPath - n * dh + multiStaggerTerm);
-      paths.push({
-        id: 'R3',
-        type: 'Multi zig-zag',
-        formula: 'bn = b - n*dh + Σ(p_i^2/(4g_i))',
-        holeDeductionTerm: n * dh,
-        staggerAdditionTerm: multiStaggerTerm,
-        bn: multiBn,
-        an: multiBn * t,
-        transitions: multiTransitions,
-      });
-    }
-  }
-
-  const governing = paths.reduce((min, p) => (p.an < min.an ? p : min), paths[0]);
-  return {
-    paths: paths.map((p) => ({ ...p, governing: p.id === governing.id })),
-    governing,
+    stagger,
+    eMin: stagger.eMin,
+    gMin: stagger.gMin,
+    effectiveEdge: stagger.eEff,
+    effectiveGauge: stagger.gEff,
+    noBoltCanFit: false,
+    helper: stagger.message,
   };
 }
 
@@ -187,10 +347,46 @@ export function calculateConnectionCapacities(inputs: any) {
   }
 
   const ruptureEval = connection === 'Bolted'
-    ? buildRupturePaths(inputs, bPath, dh)
+    ? evaluateBoltedRupturePaths(
+        {
+          connection: inputs.connection,
+          holePattern: inputs.holePattern,
+          noOfHoles: Number(inputs.noOfHoles),
+          rows: Number(inputs.rows),
+          stagger_p: Number(inputs.stagger_p),
+          stagger_g: Number(inputs.stagger_g),
+        } satisfies RuptureInputs,
+        bPath,
+        dh,
+        thickness
+      )
     : {
-        paths: [{ id: 'R0', type: 'Welded/No hole deduction', formula: 'bn = b', holeDeductionTerm: 0, staggerAdditionTerm: 0, bn: bPath, an: bPath * thickness, governing: true }],
-        governing: { id: 'R0', an: bPath * thickness, bn: bPath },
+        paths: [
+          {
+            id: 'R0',
+            type: 'Welded/No hole deduction',
+            formula: 'bn = b',
+            holesCut: 0,
+            staggerTerms: [],
+            holeDeductionTerm: 0,
+            staggerAdditionTerm: 0,
+            bn: bPath,
+            an: bPath * thickness,
+            governing: true,
+          },
+        ],
+        governing: {
+          id: 'R0',
+          type: 'Welded',
+          formula: 'bn = b',
+          holesCut: 0,
+          staggerTerms: [],
+          holeDeductionTerm: 0,
+          staggerAdditionTerm: 0,
+          bn: bPath,
+          an: bPath * thickness,
+          governing: true,
+        },
       };
   const An = clampPositive(ruptureEval.governing.an);
   // #region agent log
@@ -221,21 +417,8 @@ export function calculateConnectionCapacities(inputs: any) {
     Avg *= 2;
   }
 
-  // Eurocode shear lag factor beta (only for Eurocode logic).
-  // Basic model: beta = max(0, 1 - x/L), capped to <=1.
-  // For double-angle symmetric connection, beta is taken as 1.0.
-  let beta = 1.0;
-  if (connection === 'Bolted') {
-    const x = Number(inputs.x);
-    const L = Number(inputs.L);
-    if (inputs.sectionType === 'Double Angle' || Math.abs(x) < 1e-9) {
-      beta = 1.0;
-    } else if (L > 0) {
-      beta = Math.min(1, Math.max(0, 1 - x / L));
-    } else {
-      beta = 1.0;
-    }
-  }
+  // Eurocode shear lag factor β — must match UI/graphs via getBeta().
+  const beta = getBeta(inputs.sectionType, Number(inputs.x), Number(inputs.L), connection);
   // #region agent log
   agentDebugLog({
     runId: 'pre-fix',
@@ -412,7 +595,7 @@ export function TensionMemberCalculator() {
     rho_o: 1.0,
     rho_u: 1.0,
     holePattern: 'Straight',
-    stagger_p: 25,
+    stagger_p: 50,
     stagger_g: 50,
   });
 
@@ -503,7 +686,7 @@ export function TensionMemberCalculator() {
     });
   };
 
-  /** Prof. demo: sample stagger case — b=100, t=10, dh=18, n=2, p=25, g=50 → governing straight path An=640 mm² */
+  /** Prof. demo: stagger case — b=100, t=10, dh=18, n=2, g=50, p≥2.5d (defaults use p=50). Textbook p=25 zig-zag comparison can be typed manually; detailing check may flag p<2.5d. */
   const applySampleStaggerPreset = () => {
     setInputs((prev) => {
       const next: typeof prev = {
@@ -522,7 +705,7 @@ export function TensionMemberCalculator() {
         s: 50,
         g: 50,
         e: 30,
-        stagger_p: 25,
+        stagger_p: 50,
         stagger_g: 50,
       };
       const ecAlloyData =
@@ -551,7 +734,7 @@ export function TensionMemberCalculator() {
     });
   };
 
-  const boltGeometry = useMemo(() => evaluateBoltCrossSectionGeometry(inputs), [inputs]);
+  const boltGeometry = useMemo(() => evaluateBoltLayoutGeometry(inputs), [inputs]);
 
   useEffect(() => {
     if (inputs.connection === 'Bolted' && boltGeometry.invalid) {
@@ -592,13 +775,6 @@ export function TensionMemberCalculator() {
 
   const selectedEcAlloy = EUROCODE_ALLOYS.find(a => a.name === inputs.eurocodeAlloy);
 
-  const eurocodeBetaFromXL = useMemo(() => {
-    const x = Number(inputs.x);
-    const L = Number(inputs.L);
-    if (L <= 0) return 1;
-    return Math.min(1, Math.max(0, 1 - x / L));
-  }, [inputs.x, inputs.L]);
-
   const currentXOverL = useMemo(() => {
     const L = Number(inputs.L);
     if (L <= 0) return 0;
@@ -607,22 +783,24 @@ export function TensionMemberCalculator() {
 
   const shearLagCurveData = useMemo(() => {
     const data: Array<{ ratio: number; beta: number }> = [];
+    const Lref = 100;
     for (let r = 0; r <= 1.0001; r += 0.05) {
       const rr = Number(r.toFixed(2));
+      const beta = getBeta(inputs.sectionType, rr * Lref, Lref, inputs.connection);
       data.push({
         ratio: rr,
-        beta: Math.min(1, Math.max(0, Number((1 - rr).toFixed(3)))),
+        beta: Number(beta.toFixed(3)),
       });
     }
     return data;
-  }, []);
+  }, [inputs.sectionType, inputs.connection]);
 
   const effectiveAreaVsLengthData = useMemo(() => {
     const an = Number(derived.an) || 0;
     const x = Number(inputs.x);
     const data: Array<{ L: number; beta: number; aeff: number }> = [];
     for (let L = 10; L <= 200; L += 10) {
-      const beta = Math.min(1, Math.max(0, 1 - x / L));
+      const beta = getBeta(inputs.sectionType, x, L, inputs.connection);
       data.push({
         L,
         beta: Number(beta.toFixed(3)),
@@ -630,7 +808,9 @@ export function TensionMemberCalculator() {
       });
     }
     return data;
-  }, [derived.an, inputs.x]);
+  }, [derived.an, inputs.x, inputs.sectionType, inputs.connection]);
+
+  const isDoubleAngleBolted = inputs.sectionType === 'Double Angle' && inputs.connection === 'Bolted';
 
 
   const generateParametricData = () => {
@@ -810,7 +990,7 @@ export function TensionMemberCalculator() {
                       className="inline-flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-900 hover:bg-purple-100"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      Load stagger demo (single angle, 100×10 mm, dh=18, n=2, p=25, g=50)
+                      Load stagger demo (single angle, 100×10 mm, dh=18, n=2, p=50, g=50)
                     </button>
                     <span className="text-[10px] text-neutral-500">Sets inputs for the documented validation case; open Staggered Bolt Path Analysis below.</span>
                   </div>
@@ -899,28 +1079,6 @@ export function TensionMemberCalculator() {
                       <label className="text-xs font-semibold text-neutral-500 uppercase">Edge Dist e (mm)</label>
                       <input type="number" name="e" value={inputs.e} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                     </div>
-                    <div className="md:col-span-2 lg:col-span-3 p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-2">
-                      <p className="text-xs font-bold text-sky-800 uppercase">Bolt Layout Geometry Validation (Cross-Section)</p>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-sky-900">
-                        <div>Connected width b: <span className="font-mono">{boltGeometry.b.toFixed(2)} mm</span></div>
-                        <div>Min edge distance e_min = 1.5dh: <span className="font-mono">{boltGeometry.eMin.toFixed(2)} mm</span></div>
-                        <div>Min gauge g_min = 2.5d: <span className="font-mono">{boltGeometry.gMin.toFixed(2)} mm</span></div>
-                        <div>Effective edge e = max(e_user, e_min): <span className="font-mono">{boltGeometry.effectiveEdge.toFixed(2)} mm</span></div>
-                        <div>Effective gauge g = max(g_user, g_min): <span className="font-mono">{boltGeometry.effectiveGauge.toFixed(2)} mm</span></div>
-                        <div>Maximum bolts in cross-section n_max: <span className="font-mono">{boltGeometry.nMax}</span></div>
-                      </div>
-                      <p className="text-[11px] text-sky-700">{boltGeometry.helper}</p>
-                      {boltGeometry.noBoltCanFit && (
-                        <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
-                          No bolt can fit for the given width and edge distance.
-                        </p>
-                      )}
-                      {boltGeometry.invalid && !boltGeometry.noBoltCanFit && (
-                        <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
-                          Invalid bolt layout: maximum allowed bolts in cross-section for current geometry is {boltGeometry.nMax}.
-                        </p>
-                      )}
-                    </div>
                   </>
                 )}
 
@@ -952,6 +1110,68 @@ export function TensionMemberCalculator() {
                         <p className="text-[10px] text-purple-600 mt-1">Transverse distance between staggered holes.</p>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {inputs.connection === 'Bolted' && (
+                  <div className="md:col-span-2 lg:col-span-3 p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-2">
+                    <p className="text-xs font-bold text-sky-800 uppercase">Bolt layout geometry validation</p>
+                    {inputs.holePattern === 'Straight' && boltGeometry.pattern === 'Straight' && (
+                      <>
+                        <p className="text-[11px] font-semibold text-sky-800">{boltGeometry.straight.title}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-sky-900">
+                          <div>Connected width b: <span className="font-mono">{boltGeometry.b.toFixed(2)} mm</span></div>
+                          <div>Min edge e_min = 1.5dh: <span className="font-mono">{boltGeometry.eMin.toFixed(2)} mm</span></div>
+                          <div>Min gauge g_min = 2.5d: <span className="font-mono">{boltGeometry.gMin.toFixed(2)} mm</span></div>
+                          <div>Effective edge e_eff = max(e, e_min): <span className="font-mono">{boltGeometry.effectiveEdge.toFixed(2)} mm</span></div>
+                          <div>Effective gauge g_eff = max(g, g_min): <span className="font-mono">{boltGeometry.effectiveGauge.toFixed(2)} mm</span></div>
+                          <div>Required width 2e_eff + (n-1)g_eff: <span className="font-mono">{boltGeometry.straight.requiredWidth.toFixed(2)} mm</span></div>
+                          <div>Maximum bolts in one straight cross-section n_max: <span className="font-mono">{boltGeometry.nMax}</span></div>
+                        </div>
+                        <p
+                          className={`text-[11px] rounded px-2 py-1.5 ${
+                            boltGeometry.invalid
+                              ? 'text-rose-800 bg-rose-50 border border-rose-200'
+                              : 'text-sky-700'
+                          }`}
+                        >
+                          {boltGeometry.helper}
+                        </p>
+                        {!boltGeometry.invalid && (
+                          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">Straight cross-section check: OK</p>
+                        )}
+                      </>
+                    )}
+                    {inputs.holePattern === 'Staggered' && boltGeometry.pattern === 'Staggered' && (
+                      <>
+                        <p className="text-[11px] font-semibold text-sky-800">{boltGeometry.stagger.title}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-sky-900">
+                          <div>Connected width b: <span className="font-mono">{boltGeometry.b.toFixed(2)} mm</span></div>
+                          <div>Min edge e_min = 1.5dh: <span className="font-mono">{boltGeometry.eMin.toFixed(2)} mm</span></div>
+                          <div>Min gauge g_min = 2.5d: <span className="font-mono">{boltGeometry.gMin.toFixed(2)} mm</span></div>
+                          <div>Min pitch p_min = 2.5d: <span className="font-mono">{boltGeometry.stagger.pMin.toFixed(2)} mm</span></div>
+                          <div>Stagger pitch p (input): <span className="font-mono">{boltGeometry.stagger.staggerP.toFixed(2)} mm</span></div>
+                          <div>Line pitch s (input): <span className="font-mono">{boltGeometry.stagger.linePitch.toFixed(2)} mm</span></div>
+                          <div>Effective edge e_eff: <span className="font-mono">{boltGeometry.effectiveEdge.toFixed(2)} mm</span></div>
+                          <div>Effective gauge g_eff: <span className="font-mono">{boltGeometry.effectiveGauge.toFixed(2)} mm</span></div>
+                          <div>Effective stagger pitch max(p, p_min): <span className="font-mono">{boltGeometry.stagger.pStaggerEff.toFixed(2)} mm</span></div>
+                          <div>Effective line pitch max(s, p_min): <span className="font-mono">{boltGeometry.stagger.linePitchEff.toFixed(2)} mm</span></div>
+                        </div>
+                        <p
+                          className={`text-[11px] rounded px-2 py-1.5 ${
+                            boltGeometry.invalid
+                              ? 'text-rose-800 bg-rose-50 border border-rose-200'
+                              : 'text-sky-700'
+                          }`}
+                        >
+                          {boltGeometry.helper}
+                        </p>
+                        <p className="text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5">{boltGeometry.stagger.note}</p>
+                        {!boltGeometry.invalid && (
+                          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">Staggered spacing check: OK (rupture governed by path analysis below)</p>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -1153,16 +1373,31 @@ export function TensionMemberCalculator() {
                     IS rupture uses <span className="font-mono">Aeff_IS</span> = <span className="font-mono">{derived.isAeff.toFixed(2)} mm²</span> {usesIsEffectiveArea ? '(a1 + k × a2)' : (inputs.sectionType === 'Double Angle' && inputs.connection === 'Bolted' ? '(Aeff_IS = An for double-angle symmetric connection)' : '(Aeff_IS = An for plate / welded case)')}.
                   </p>
                   
-                  {inputs.holePattern === 'Staggered' && inputs.connection === 'Bolted' && (
+                  {inputs.connection === 'Bolted' && (
                     <div className="mt-4 p-3 bg-emerald-100/50 rounded-lg border border-emerald-200 space-y-4">
-                      <h4 className="text-xs font-bold text-emerald-800 uppercase">Staggered Bolt Path Analysis</h4>
+                      <h4 className="text-xs font-bold text-emerald-800 uppercase">Net-section rupture path analysis</h4>
+                      {inputs.holePattern === 'Straight' && (
+                        <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5">
+                          Straight pattern: stagger correction is not applicable. Net width uses only straight deduction bn = b − n·dh (stagger pitch/gauge inputs are not used for An).
+                        </p>
+                      )}
+                      {inputs.holePattern === 'Staggered' && (
+                        <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5">
+                          Staggered pattern: governing path is selected from evaluated candidate rupture paths (minimum net area). Zig-zag terms apply only when diagonal stagger geometry (p, g) is defined.
+                        </p>
+                      )}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-emerald-900">
+                        <div><span className="font-semibold">Hole pattern:</span> {inputs.holePattern}</div>
                         <div><span className="font-semibold">b_path:</span> {derived.connectedLegWidth.toFixed(2)} mm</div>
                         <div><span className="font-semibold">t:</span> {inputs.thickness} mm</div>
                         <div><span className="font-semibold">dh:</span> {derived.holeDia.toFixed(2)} mm</div>
-                        <div><span className="font-semibold">n:</span> {inputs.noOfHoles}</div>
-                        <div><span className="font-semibold">p:</span> {inputs.stagger_p} mm</div>
-                        <div><span className="font-semibold">g:</span> {inputs.stagger_g} mm</div>
+                        <div><span className="font-semibold">n (holes on path):</span> {inputs.noOfHoles}</div>
+                        {inputs.holePattern === 'Staggered' && (
+                          <>
+                            <div><span className="font-semibold">Stagger p:</span> {inputs.stagger_p} mm</div>
+                            <div><span className="font-semibold">Stagger g:</span> {inputs.stagger_g} mm</div>
+                          </>
+                        )}
                         <div><span className="font-semibold">Connected leg:</span> {inputs.connectedLeg}</div>
                         <div><span className="font-semibold">β (EC after An):</span> {derived.beta.toFixed(3)}</div>
                       </div>
@@ -1206,7 +1441,11 @@ export function TensionMemberCalculator() {
                         <div><span className="font-semibold">Governing net area An:</span> {derived.an.toFixed(3)} mm²</div>
                         <div><span className="font-semibold">IS 8147 effective area:</span> {derived.isAeff.toFixed(3)} mm² {inputs.sectionType === 'Single Angle' ? `(Aeff_IS = a1 + k*a2, k=${derived.isK.toFixed(3)})` : '(Aeff_IS = An)'}</div>
                         <div><span className="font-semibold">Eurocode effective area:</span> {derived.aeff.toFixed(3)} mm² = β × An = {derived.beta.toFixed(3)} × {derived.an.toFixed(3)}</div>
-                        <div className="mt-1 text-emerald-700">IS 8147 stagger handling uses standard net-section path evaluation with stagger correction and governing-path selection from checked paths.</div>
+                        <div className="mt-1 text-emerald-700">
+                          {inputs.holePattern === 'Straight'
+                            ? 'Straight pattern: single straight net-section path; no stagger terms in bn.'
+                            : 'Staggered pattern: candidate paths include straight and zig-zag (when applicable); governing rupture uses minimum An among all.'}
+                        </div>
                       </div>
 
                       {results.bsPathsList.length > 0 && (
@@ -1250,7 +1489,9 @@ export function TensionMemberCalculator() {
                       )}
 
                       <p className="text-[11px] text-emerald-700">
-                        Under staggered bolt condition, the app checks both straight and zig-zag rupture paths. Governing path is the minimum net area path; zig-zag is not assumed to govern.
+                        {inputs.holePattern === 'Straight'
+                          ? 'Straight bolt pattern: rupture uses only the straight net-section deduction; stagger correction does not apply.'
+                          : 'Staggered bolt pattern: straight and zig-zag rupture paths are compared when diagonal geometry is defined; the governing path is the minimum net area (zig-zag does not automatically govern).'}
                       </p>
                     </div>
                   )}
@@ -1283,10 +1524,21 @@ export function TensionMemberCalculator() {
                   <input type="number" value={derived.beta.toFixed(3)} readOnly className="w-full px-3 py-2 bg-indigo-50 border-2 border-indigo-200 rounded-lg font-mono text-lg text-indigo-900 outline-none cursor-not-allowed" />
                   <div className="grid grid-cols-2 gap-3 mt-2">
                     <div className="text-xs text-indigo-800"><span className="font-semibold">x/L:</span> {inputs.L > 0 ? (Number(inputs.x) / Number(inputs.L)).toFixed(3) : '0.000'}</div>
-                    <div className="text-xs text-indigo-800"><span className="font-semibold">Model:</span> β = max(0, min(1 - x/L, 1))</div>
+                    <div className="text-xs text-indigo-800">
+                      <span className="font-semibold">Model:</span>{' '}
+                      {isDoubleAngleBolted
+                        ? 'β = 1.0 (symmetric double angle)'
+                        : 'β = max(0, min(1 − x/L, 1))'}
+                    </div>
                   </div>
                   <p className="text-[10px] text-indigo-700 mt-1">
-                    Beta is calculated from Eurocode shear lag concept: β = max(0, 1 - x/L), capped at β ≤ 1. For double-angle symmetric connection, β = 1.0.
+                    {isDoubleAngleBolted ? (
+                      <>Symmetric double-angle bolted connection: β is fixed at 1.0 (no shear lag reduction using x/L).</>
+                    ) : inputs.connection === 'Bolted' ? (
+                      <>Eurocode shear lag: β = max(0, 1 − x/L), capped at β ≤ 1. At x = 0, β = 1.</>
+                    ) : (
+                      <>Welded connection: β = 1.0 (no bolted shear lag model applied here).</>
+                    )}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -1302,6 +1554,11 @@ export function TensionMemberCalculator() {
                 <p className="text-xs text-neutral-500 mt-1">Eurocode Shear Lag Visualization</p>
               </div>
               <div className="p-6 space-y-6">
+                {isDoubleAngleBolted && (
+                  <p className="text-xs text-neutral-600 bg-neutral-100 border border-neutral-200 rounded-lg px-3 py-2">
+                    Sliders for x and L are disabled for symmetric double-angle: β stays 1.0 and does not follow 1 − x/L. Adjust x/L in the main form above if needed for other uses.
+                  </p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-neutral-600 uppercase">Eccentricity x (mm): {Number(inputs.x).toFixed(1)}</label>
@@ -1311,8 +1568,9 @@ export function TensionMemberCalculator() {
                       max={100}
                       step={1}
                       value={inputs.x}
+                      disabled={isDoubleAngleBolted}
                       onChange={(e) => setInputs((prev) => ({ ...prev, x: Number(e.target.value) }))}
-                      className="w-full"
+                      className={`w-full ${isDoubleAngleBolted ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1323,8 +1581,9 @@ export function TensionMemberCalculator() {
                       max={200}
                       step={1}
                       value={inputs.L}
+                      disabled={isDoubleAngleBolted}
                       onChange={(e) => setInputs((prev) => ({ ...prev, L: Number(e.target.value) }))}
-                      className="w-full"
+                      className={`w-full ${isDoubleAngleBolted ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                   </div>
                 </div>
@@ -1335,17 +1594,22 @@ export function TensionMemberCalculator() {
                     <p className="text-xl font-mono text-indigo-900">{currentXOverL.toFixed(3)}</p>
                   </div>
                   <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                    <p className="text-xs uppercase font-semibold text-emerald-700">Current β (Eurocode graph model)</p>
-                    <p className="text-xl font-mono text-emerald-900">{eurocodeBetaFromXL.toFixed(3)}</p>
+                    <p className="text-xs uppercase font-semibold text-emerald-700">Current β (same as calculation)</p>
+                    <p className="text-xl font-mono text-emerald-900">{derived.beta.toFixed(3)}</p>
                   </div>
                 </div>
 
-                {Number(inputs.x) === 0 && (
+                {isDoubleAngleBolted && (
                   <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                    Symmetric connection: β = 1 (No shear lag)
+                    Double-angle symmetric connection: β = 1.0 — x/L does not reduce β (see flat line on chart).
                   </p>
                 )}
-                {currentXOverL > 0.5 && (
+                {inputs.connection === 'Bolted' && !isDoubleAngleBolted && Number(inputs.x) === 0 && (
+                  <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    Eccentricity x = 0: β = 1 (no shear lag).
+                  </p>
+                )}
+                {inputs.connection === 'Bolted' && !isDoubleAngleBolted && currentXOverL > 0.5 && derived.beta < 0.95 && (
                   <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     High shear lag effect
                   </p>
@@ -1359,18 +1623,30 @@ export function TensionMemberCalculator() {
                       <YAxis domain={[0, 1]} label={{ value: 'Beta (β)', angle: -90, position: 'insideLeft' }} tick={{ fill: '#6b7280' }} />
                       <Tooltip
                         formatter={(value: any, name: any) => [`${Number(value).toFixed(3)}`, name]}
-                        labelFormatter={(label) => `x/L = ${Number(label).toFixed(3)} | β = 1 - x/L`}
+                        labelFormatter={(label) => {
+                          const rr = Number(label);
+                          const Lref = 100;
+                          const b = getBeta(inputs.sectionType, rr * Lref, Lref, inputs.connection);
+                          return `x/L = ${rr.toFixed(3)} | β = ${b.toFixed(3)}`;
+                        }}
                       />
                       <Legend />
-                      <Line type="monotone" dataKey="beta" stroke="#4f46e5" strokeWidth={3} dot={false} name="β = 1 - x/L" />
+                      <Line
+                        type="monotone"
+                        dataKey="beta"
+                        stroke="#4f46e5"
+                        strokeWidth={3}
+                        dot={false}
+                        name={isDoubleAngleBolted ? 'β = 1 (double angle)' : 'β = 1 − x/L'}
+                      />
                       <ReferenceDot
                         x={Math.max(0, Math.min(1, currentXOverL))}
-                        y={eurocodeBetaFromXL}
+                        y={derived.beta}
                         r={6}
                         fill="#dc2626"
                         stroke="#ffffff"
                         strokeWidth={2}
-                        label={{ value: `Current β = ${eurocodeBetaFromXL.toFixed(3)}`, position: 'top', fill: '#991b1b', fontSize: 11 }}
+                        label={{ value: `Current β = ${derived.beta.toFixed(3)}`, position: 'top', fill: '#991b1b', fontSize: 11 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -1396,7 +1672,9 @@ export function TensionMemberCalculator() {
                 </div>
 
                 <p className="text-sm text-neutral-700">
-                  Beta decreases as eccentricity increases, reducing effective area due to shear lag.
+                  {isDoubleAngleBolted
+                    ? 'β is fixed at 1.0 for symmetric double-angle connections, so the x/L curve is flat and Aeff does not change with x/L.'
+                    : 'β typically decreases as x/L increases, reducing effective area due to shear lag.'}
                 </p>
               </div>
             </div>
