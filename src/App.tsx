@@ -4,6 +4,17 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { EUROCODE_ALLOYS, IS8147_ALLOYS } from './data/alloys';
 import AlloyMappingPage from './pages/AlloyMappingPage';
 
+/** Debug session c49122: mirror to console when ingest is unreachable (e.g. Vercel cannot POST to 127.0.0.1). */
+function agentDebugLog(payload: Record<string, unknown>) {
+  const body = JSON.stringify({ sessionId: 'c49122', ...payload, timestamp: Date.now() });
+  fetch('http://127.0.0.1:7629/ingest/a5d7636b-0cf7-4136-9036-63f40129bb20', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c49122' },
+    body,
+  }).catch(() => {});
+  if (typeof console !== 'undefined') console.log('[DEBUG_C49122]', body);
+}
+
 function clampPositive(v: number): number {
   return Number.isFinite(v) ? Math.max(0, v) : 0;
 }
@@ -11,6 +22,50 @@ function clampPositive(v: number): number {
 function getConnectedLegWidth(inputs: any): number {
   const connectedLeg = inputs.connectedLeg === 'Leg 2' ? 'Leg 2' : 'Leg 1';
   return connectedLeg === 'Leg 2' ? Number(inputs.leg2) : Number(inputs.leg1);
+}
+
+function evaluateBoltCrossSectionGeometry(inputs: any) {
+  const d = Number(inputs.dia);
+  const dh = d + 2;
+  const n = Number(inputs.noOfHoles);
+  const eUser = Number(inputs.e);
+  const gUser = Number(inputs.g);
+
+  let b = Number(inputs.width);
+  if (inputs.sectionType === 'Single Angle' || inputs.sectionType === 'Double Angle') {
+    b = getConnectedLegWidth(inputs);
+  }
+
+  const eMin = 1.5 * dh;
+  const gMin = 2.5 * d;
+  const effectiveEdge = Math.max(eUser, eMin);
+  const effectiveGauge = Math.max(gUser, gMin);
+
+  let nMax = 0;
+  let noBoltCanFit = false;
+  if (b < 2 * effectiveEdge) {
+    nMax = 0;
+    noBoltCanFit = true;
+  } else {
+    nMax = Math.floor((b - 2 * effectiveEdge) / effectiveGauge) + 1;
+    nMax = Math.max(0, nMax);
+  }
+
+  const invalid = inputs.connection === 'Bolted' && (noBoltCanFit || n > nMax);
+
+  return {
+    d,
+    dh,
+    b,
+    eMin,
+    gMin,
+    effectiveEdge,
+    effectiveGauge,
+    nMax,
+    invalid,
+    noBoltCanFit,
+    helper: 'Check based on width >= 2e + (n-1)g',
+  };
 }
 
 // Sample check for staggered rupture math (requested validation case):
@@ -85,6 +140,27 @@ export function calculateConnectionCapacities(inputs: any) {
   } = inputs;
   const sigma_at = sigmaAtIS == null ? 0 : Number(sigmaAtIS);
   const sigma_at_rupture = sigma_at;
+  // #region agent log
+  agentDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H1',
+    location: 'App.tsx:calculateConnectionCapacities:entry',
+    message: 'calc entry inputs snapshot',
+    data: {
+      sectionType: inputs.sectionType,
+      connection: inputs.connection,
+      holePattern: inputs.holePattern,
+      x: inputs.x,
+      L: inputs.L,
+      noOfHoles: inputs.noOfHoles,
+      rows: inputs.rows,
+      thickness: inputs.thickness,
+      leg1: inputs.leg1,
+      leg2: inputs.leg2,
+      connectedLeg: inputs.connectedLeg,
+    },
+  });
+  // #endregion
 
   let fy_eff = fy;
   let fu_eff = fu;
@@ -116,6 +192,21 @@ export function calculateConnectionCapacities(inputs: any) {
         governing: { id: 'R0', an: bPath * thickness, bn: bPath },
       };
   const An = clampPositive(ruptureEval.governing.an);
+  // #region agent log
+  agentDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H2',
+    location: 'App.tsx:calculateConnectionCapacities:rupturePaths',
+    message: 'rupture candidate evaluation',
+    data: {
+      bPath,
+      dh,
+      paths: ruptureEval.paths?.map((p: any) => ({ id: p.id, type: p.type, bn: p.bn, an: p.an, gov: p.governing })),
+      governingPath: ruptureEval.governing?.id,
+      governingAn: An,
+    },
+  });
+  // #endregion
 
   // Block shear base areas.
   let Ant = connection === 'Welded' ? 0 : (g - dh) * thickness;
@@ -144,6 +235,15 @@ export function calculateConnectionCapacities(inputs: any) {
       beta = 1.0;
     }
   }
+  // #region agent log
+  agentDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H3',
+    location: 'App.tsx:calculateConnectionCapacities:beta',
+    message: 'eurocode beta evaluation',
+    data: { sectionType: inputs.sectionType, x: inputs.x, L: inputs.L, beta },
+  });
+  // #endregion
 
   const ecYield = (Ag * fy_eff) / gammaM0 / 1000;
   const Aeff = An * beta;
@@ -169,6 +269,15 @@ export function calculateConnectionCapacities(inputs: any) {
   }
   const isYield = (Ag * sigma_at) / 1000;
   const isRupture = (isAeff * sigma_at_rupture) / 1000;
+  // #region agent log
+  agentDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H4',
+    location: 'App.tsx:calculateConnectionCapacities:isAeff',
+    message: 'is8147 effective area evaluation',
+    data: { sectionType: inputs.sectionType, connectedLeg: inputs.connectedLeg, isK, An, isAeff },
+  });
+  // #endregion
 
   const bsPathsList: any[] = [];
   if (connection === 'Bolted' && n_line > 0 && p > 0) {
@@ -229,6 +338,18 @@ export function calculateConnectionCapacities(inputs: any) {
   const ecMode = ecFinal === ecYield ? 'Yielding' : (ecFinal === ecRupture ? 'Rupture' : 'Block Shear');
   const isFinal = isBlockShear > 0 ? Math.min(isYield, isRupture, isBlockShear) : Math.min(isYield, isRupture);
   const isMode = isFinal === isYield ? 'Yielding' : (isFinal === isRupture ? 'Rupture' : 'Block Shear');
+  // #region agent log
+  agentDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H5',
+    location: 'App.tsx:calculateConnectionCapacities:final',
+    message: 'final capacity summary',
+    data: {
+      ec: { yield: ecYield, rupture: ecRupture, blockShear: ecBlockShear, final: ecFinal, mode: ecMode, bsPath: ecBsPath },
+      is: { yield: isYield, rupture: isRupture, blockShear: isBlockShear, final: isFinal, mode: isMode, bsPath: isBsPath },
+    },
+  });
+  // #endregion
 
   return {
     eurocode: { yield: ecYield, rupture: ecRupture, blockShear: ecBlockShear, final: ecFinal, mode: ecMode, bsPath: ecBsPath },
@@ -430,6 +551,24 @@ export function TensionMemberCalculator() {
   };
 
   useEffect(() => {
+    if (inputs.connection === 'Bolted' && boltGeometry.invalid) {
+      setDerived((prev) => ({
+        ...prev,
+        holeDia: boltGeometry.dh,
+        ag: 0,
+        an: 0,
+        aeff: 0,
+        isAeff: 0,
+        criticalAnPath: 'Geometry Invalid',
+        rupturePaths: [],
+      }));
+      setResults({
+        is8147: { yield: 0, rupture: 0, blockShear: 0, final: 0, mode: 'Invalid geometry', bsPath: '' },
+        eurocode: { yield: 0, rupture: 0, blockShear: 0, final: 0, mode: 'Invalid geometry', bsPath: '' },
+        bsPathsList: [],
+      });
+      return;
+    }
     const results = calculateConnectionCapacities(inputs);
     setDerived(results.derived as any);
     setResults({
@@ -437,7 +576,7 @@ export function TensionMemberCalculator() {
       eurocode: results.eurocode,
       bsPathsList: results.bsPathsList
     });
-  }, [inputs]);
+  }, [inputs, boltGeometry]);
 
   const chartData = [
     { name: 'Yield', 'IS 8147': results.is8147.yield, 'Eurocode': results.eurocode.yield },
@@ -449,6 +588,7 @@ export function TensionMemberCalculator() {
   const sigmaAtDisp = inputs.sigmaAtIS == null ? '—' : inputs.sigmaAtIS.toFixed(2);
 
   const selectedEcAlloy = EUROCODE_ALLOYS.find(a => a.name === inputs.eurocodeAlloy);
+  const boltGeometry = useMemo(() => evaluateBoltCrossSectionGeometry(inputs), [inputs]);
 
   const eurocodeBetaFromXL = useMemo(() => {
     const x = Number(inputs.x);
@@ -756,6 +896,28 @@ export function TensionMemberCalculator() {
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-neutral-500 uppercase">Edge Dist e (mm)</label>
                       <input type="number" name="e" value={inputs.e} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                    </div>
+                    <div className="md:col-span-2 lg:col-span-3 p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-2">
+                      <p className="text-xs font-bold text-sky-800 uppercase">Bolt Layout Geometry Validation (Cross-Section)</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-sky-900">
+                        <div>Connected width b: <span className="font-mono">{boltGeometry.b.toFixed(2)} mm</span></div>
+                        <div>Min edge distance e_min = 1.5dh: <span className="font-mono">{boltGeometry.eMin.toFixed(2)} mm</span></div>
+                        <div>Min gauge g_min = 2.5d: <span className="font-mono">{boltGeometry.gMin.toFixed(2)} mm</span></div>
+                        <div>Effective edge e = max(e_user, e_min): <span className="font-mono">{boltGeometry.effectiveEdge.toFixed(2)} mm</span></div>
+                        <div>Effective gauge g = max(g_user, g_min): <span className="font-mono">{boltGeometry.effectiveGauge.toFixed(2)} mm</span></div>
+                        <div>Maximum bolts in cross-section n_max: <span className="font-mono">{boltGeometry.nMax}</span></div>
+                      </div>
+                      <p className="text-[11px] text-sky-700">{boltGeometry.helper}</p>
+                      {boltGeometry.noBoltCanFit && (
+                        <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
+                          No bolt can fit for the given width and edge distance.
+                        </p>
+                      )}
+                      {boltGeometry.invalid && !boltGeometry.noBoltCanFit && (
+                        <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
+                          Invalid bolt layout: maximum allowed bolts in cross-section for current geometry is {boltGeometry.nMax}.
+                        </p>
+                      )}
                     </div>
                   </>
                 )}
