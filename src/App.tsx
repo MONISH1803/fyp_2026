@@ -134,17 +134,14 @@ export function calculateConnectionCapacities(inputs: any) {
   // For double-angle symmetric connection, beta is taken as 1.0.
   let beta = 1.0;
   if (connection === 'Bolted') {
-    if (inputs.sectionType === 'Double Angle') {
-      beta = Math.abs(Number(inputs.x)) < 1e-9 ? 1.0 : 1.0;
+    const x = Number(inputs.x);
+    const L = Number(inputs.L);
+    if (inputs.sectionType === 'Double Angle' || Math.abs(x) < 1e-9) {
+      beta = 1.0;
+    } else if (L > 0) {
+      beta = Math.min(1, Math.max(0, 1 - x / L));
     } else {
-      if (inputs.betaMode === 'Manual') {
-        beta = Math.min(1, Math.max(0, Number(inputs.manualBeta)));
-      } else {
-        const L = Number(inputs.L);
-        const x = Number(inputs.x);
-        if (L > 0) beta = Math.min(1, Math.max(0, 1 - x / L));
-        else beta = 1.0;
-      }
+      beta = 1.0;
     }
   }
 
@@ -274,10 +271,8 @@ export function TensionMemberCalculator() {
     s: 50,
     g: 50,
     e: 30,
-    betaMode: 'Auto',
     x: 20,
     L: 100,
-    manualBeta: 0.8,
     fy: 250,
     fu: 290,
     fyIS8147: 105,
@@ -331,7 +326,7 @@ export function TensionMemberCalculator() {
         const raw = (e.target as HTMLInputElement).value;
         parsedValue = raw === '' || raw === '-' ? null : Number(raw);
       } else {
-        parsedValue = ['id', 'sectionType', 'connection', 'holePattern', 'eurocodeAlloy', 'is8147Alloy', 'betaMode', 'sigmaAtMode', 'foMode', 'connectedLeg'].includes(name) ? value : Number(value);
+        parsedValue = ['id', 'sectionType', 'connection', 'holePattern', 'eurocodeAlloy', 'is8147Alloy', 'sigmaAtMode', 'foMode', 'connectedLeg'].includes(name) ? value : Number(value);
       }
       const newInputs = { ...prev, [name]: parsedValue };
 
@@ -1105,34 +1100,16 @@ export function TensionMemberCalculator() {
                 <h2 className="text-lg font-semibold">Eurocode Shear Lag Factor (β)</h2>
               </div>
               <div className="p-6 space-y-4">
-                <div className="flex gap-4 mb-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="betaMode" value="Auto" checked={inputs.betaMode === 'Auto'} onChange={handleInputChange} className="w-4 h-4 text-indigo-600" />
-                    <span className="text-sm font-medium">Auto Calculate</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="betaMode" value="Manual" checked={inputs.betaMode === 'Manual'} onChange={handleInputChange} className="w-4 h-4 text-indigo-600" />
-                    <span className="text-sm font-medium">Manual Override</span>
-                  </label>
-                </div>
-
-                {inputs.betaMode === 'Auto' ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-neutral-500 uppercase">Eccentricity x (mm)</label>
-                      <input type="number" name="x" value={inputs.x} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-neutral-500 uppercase">Connection Length L (mm)</label>
-                      <input type="number" name="L" value={inputs.L} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
-                    </div>
-                  </div>
-                ) : (
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-neutral-500 uppercase">Manual β (0.7 - 1.0)</label>
-                    <input type="number" step="0.01" min="0.7" max="1.0" name="manualBeta" value={inputs.manualBeta} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                    <label className="text-xs font-semibold text-neutral-500 uppercase">Eccentricity x (mm)</label>
+                    <input type="number" name="x" value={inputs.x} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
                   </div>
-                )}
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-neutral-500 uppercase">Connection Length L (mm)</label>
+                    <input type="number" name="L" value={inputs.L} onChange={handleInputChange} className="w-full px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg outline-none" />
+                  </div>
+                </div>
 
                 <div className="space-y-1 pt-4 border-t border-neutral-100">
                   <label className="text-xs font-bold text-indigo-800 uppercase flex justify-between">
@@ -1140,6 +1117,10 @@ export function TensionMemberCalculator() {
                     {derived.beta === 1.0 && <span className="text-amber-600 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> Shear lag ignored</span>}
                   </label>
                   <input type="number" value={derived.beta.toFixed(3)} readOnly className="w-full px-3 py-2 bg-indigo-50 border-2 border-indigo-200 rounded-lg font-mono text-lg text-indigo-900 outline-none cursor-not-allowed" />
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <div className="text-xs text-indigo-800"><span className="font-semibold">x/L:</span> {inputs.L > 0 ? (Number(inputs.x) / Number(inputs.L)).toFixed(3) : '0.000'}</div>
+                    <div className="text-xs text-indigo-800"><span className="font-semibold">Model:</span> β = max(0, min(1 - x/L, 1))</div>
+                  </div>
                   <p className="text-[10px] text-indigo-700 mt-1">
                     Beta is calculated from Eurocode shear lag concept: β = max(0, 1 - x/L), capped at β ≤ 1. For double-angle symmetric connection, β = 1.0.
                   </p>
