@@ -87,6 +87,20 @@ function effectiveEurocodeBeta(inputs: { showShearLagEffect?: boolean }, betaMod
   return betaModel;
 }
 
+/** UI labels for IS 8147 governing mode (calculations still use yield/rupture/block internally). */
+function formatIs8147GoverningMode(mode: string): string {
+  switch (mode) {
+    case 'Yielding':
+      return 'Gross section (Table 4 σ_at)';
+    case 'Rupture':
+      return 'Net-section rupture';
+    case 'Block Shear':
+      return 'Block shear (adopted IS 800:2007)';
+    default:
+      return mode;
+  }
+}
+
 /** Tolerance (mm) so values equal to code minima pass; invalid only when strictly below minimum. */
 const GEOM_MIN_EPS = 1e-6;
 
@@ -870,7 +884,11 @@ export function TensionMemberCalculator() {
   }, [inputs, boltGeometry]);
 
   const chartData = [
-    { name: 'Yield', 'IS 8147': results.is8147.yield, 'Eurocode': results.eurocode.yield },
+    {
+      name: 'Gross (IS) / Yield (EC)',
+      'IS 8147': results.is8147.yield,
+      'Eurocode': results.eurocode.yield,
+    },
     { name: 'Rupture', 'IS 8147': results.is8147.rupture, 'Eurocode': results.eurocode.rupture },
     { name: 'Block Shear', 'IS 8147': results.is8147.blockShear, 'Eurocode': results.eurocode.blockShear },
     { name: 'Final', 'IS 8147': results.is8147.final, 'Eurocode': results.eurocode.final },
@@ -1685,6 +1703,12 @@ export function TensionMemberCalculator() {
                           <p className="text-[10px] text-emerald-700">
                             Same bolt layout and material; only hole pattern is toggled for this table. Eurocode rupture uses current β (unchanged vs pattern). Shear-lag β charts above depend on x/L only, not hole pattern.
                           </p>
+                          <p className="text-[10px] text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 leading-snug">
+                            Often the straight path governs because it gives the minimum net area among candidates. Zig-zag correction can improve an alternate path, but it does not govern automatically.
+                          </p>
+                          <p className="text-[10px] text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 leading-snug">
+                            Stagger becomes significant when a zig-zag path produces the governing (lowest) net-section efficiency for the evaluated layout.
+                          </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-emerald-900">
                             <div className="border border-emerald-200 rounded-lg p-2 bg-emerald-50/50">
                               <div className="font-semibold text-emerald-800 mb-1">Straight</div>
@@ -1722,6 +1746,9 @@ export function TensionMemberCalculator() {
                       {results.bsPathsList.length > 0 && (
                         <div>
                           <h5 className="text-[11px] font-bold text-emerald-700 uppercase mb-1">Candidate Block Shear Paths</h5>
+                          <p className="text-[10px] text-slate-600 mb-2 leading-snug">
+                            IS-side block shear uses adopted IS 800:2007-style expressions (see references). Eurocode column uses EN 1999 block tearing.
+                          </p>
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs text-emerald-900">
                               <thead className="bg-emerald-200/50 text-emerald-800">
@@ -1822,7 +1849,9 @@ export function TensionMemberCalculator() {
                     <p className="text-[10px] font-semibold uppercase text-indigo-600">Live formula</p>
                     <p className="text-sm font-mono text-indigo-900 leading-snug">{liveShearLagFormula.line}</p>
                     {inputs.sectionType === 'Single Angle' && (
-                      <p className="text-[11px] text-indigo-700">Single angle (bolted): β = 1 − x/L (values capped at β ≥ 0).</p>
+                      <p className="text-[11px] text-indigo-700">
+                        Single angle (bolted): β follows the eccentricity ratio; use β = max(0, min(1 − x/L, 1)) (lower bound 0).
+                      </p>
                     )}
                   </div>
                 )}
@@ -1857,7 +1886,9 @@ export function TensionMemberCalculator() {
                         Plate: shear lag applies only with eccentricity x along the member. Concentric/symmetric (x = 0) → β = 1, Aeff = An. Not based on angle leg logic.
                       </>
                     ) : inputs.connection === 'Bolted' ? (
-                      <>Eurocode shear lag: β = max(0, 1 − x/L), capped at β ≤ 1. At x = 0, β = 1.</>
+                      <>
+                        Eurocode shear-lag factor β is evaluated from the eccentricity ratio x/L and applied to the net area as Aeff = β·An for rupture. For bolted single angles, β = max(0, min(1 − x/L, 1)); at x = 0, β = 1.
+                      </>
                     ) : (
                       <>Welded connection: β = 1.0 (no bolted shear lag model applied here).</>
                     )}
@@ -1998,7 +2029,7 @@ export function TensionMemberCalculator() {
                     ? 'Symmetric double-angle connections use β = 1.0 (horizontal line on chart).'
                     : isPlateBolted
                       ? 'For plates, use x = 0 for a concentric connection (β = 1). Shear lag reduction applies only when you enter eccentricity x for an offset load path.'
-                      : 'Beta decreases as eccentricity increases due to shear lag.'}
+                      : 'Shear-lag factor β generally decreases as eccentricity x/L increases, reducing the effective net area used in rupture.'}
                 </p>
               </div>
             </div>
@@ -2093,8 +2124,12 @@ export function TensionMemberCalculator() {
                   <div>
                     <h3 className="font-bold text-neutral-900 mb-2">IS 8147:1976 (Working Stress)</h3>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li><strong>Yield:</strong> P_y = σ_at × Ag</li>
-                      <li><strong>Rupture:</strong> P_u = σ_at × Aeff_IS (same Table 4 σ_at as yield)</li>
+                      <li>
+                        <strong>Allowable tensile (gross section):</strong> P = σ_at × Ag (Table 4 permissible tensile stress σ_at — not an fy-based yield check)
+                      </li>
+                      <li>
+                        <strong>Net-section rupture:</strong> P_u = σ_at × Aeff_IS (same Table 4 σ_at)
+                      </li>
                       <li className="font-mono text-emerald-700">Substituted: P_u = {derived.isAeff.toFixed(2)} × {sigmaAtDisp} / 1000 = {inputs.sigmaAtIS == null ? '—' : results.is8147.rupture.toFixed(2)} kN</li>
                       {usesIsEffectiveArea && (
                         <li className="text-xs text-neutral-600">Aeff_IS = a1 + k × a2, with k = {derived.isK.toFixed(3)}.</li>
@@ -2119,10 +2154,14 @@ export function TensionMemberCalculator() {
                   </div>
                   <div>
                     <h3 className="font-bold text-neutral-900 mb-2">Block Shear</h3>
+                    <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                      Block shear is not explicitly covered in IS 8147:1976. Values labeled “IS 8147” here use provisions adopted from IS 800:2007 for comparative assessment (Clause 6.4.1 style formulation with Table 4 σ_at).
+                    </p>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li><strong>IS 8147 (Adopted from IS 800:2007):</strong> min[ (Avg × σ_at)/√3 + (0.9 × Ant × σ_at), (0.9 × Anv × σ_at)/√3 + (Atg × σ_at) ] (same σ_at)</li>
+                      <li>
+                        <strong>Adopted for IS-side comparison (IS 800:2007 basis):</strong> min[ (Avg × σ_at)/√3 + (0.9 × Ant × σ_at), (0.9 × Anv × σ_at)/√3 + (Atg × σ_at) ] (same σ_at)
+                      </li>
                       <li><strong>Eurocode (Limit State):</strong> Veff,Rd = (fu × Ant) / γM2 + (fy × Anv) / (√3 × γM0)</li>
-                      <li className="text-amber-700">Note: IS 8147 does not explicitly define block shear. The IS 800:2007 limit state approach is adopted as requested.</li>
                     </ul>
                   </div>
                 </div>
@@ -2134,7 +2173,10 @@ export function TensionMemberCalculator() {
           <div className="lg:col-span-5 space-y-6">
             
             <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 overflow-hidden p-6">
-              <h2 className="text-lg font-semibold mb-4">Strength Comparison</h2>
+              <h2 className="text-lg font-semibold mb-1">Strength Comparison</h2>
+              <p className="text-xs text-neutral-500 mb-4">
+                First category: IS gross allowable (σ_at) vs Eurocode yielding (N_pl,Rd). Governing rupture path is the minimum net area among candidates; zig-zag does not automatically govern.
+              </p>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
@@ -2161,7 +2203,15 @@ export function TensionMemberCalculator() {
                     Table 4 permissible tensile stress σ_at is not set. Enter a value under Manual, or use Auto with a mapped alloy. IS capacities use 0 when σ_at is missing.
                   </p>
                 )}
-                <ResultRow label="Yield Strength" value={results.is8147.yield} unit="kN" isMin={nearEqual(results.is8147.yield, results.is8147.final)} />
+                <ResultRow
+                  label="Gross Section Capacity"
+                  value={results.is8147.yield}
+                  unit="kN"
+                  isMin={nearEqual(results.is8147.yield, results.is8147.final)}
+                />
+                <p className="text-[10px] text-slate-600 -mt-2 mb-1">
+                  Allowable tensile capacity (σ_at × Ag, Table 4) — not an fy-based yield strength.
+                </p>
                 <ResultRow label="Rupture Strength" value={results.is8147.rupture} unit="kN" isMin={nearEqual(results.is8147.rupture, results.is8147.final)} />
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 font-mono space-y-1">
                   <div className="font-semibold text-slate-800">IS 8147 Rupture Calculation</div>
@@ -2178,20 +2228,25 @@ export function TensionMemberCalculator() {
                           : 'Where Aeff_IS = An.'}
                   </div>
                 </div>
-                <div className="flex justify-between items-center group relative">
-                  <span className="text-sm font-medium text-neutral-600 flex items-center gap-1">
-                    Block Shear <Info className="w-3 h-3 text-neutral-400" />
-                  </span>
-                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-neutral-800 text-white text-xs rounded shadow-lg z-10">
-                    IS 8147 does not explicitly define block shear. Assumed from IS 800.
-                  </div>
-                  {results.is8147.blockShear === 0 ? (
-                    <span className="text-sm font-mono text-neutral-400">N/A</span>
-                  ) : (
-                    <span className={`text-base font-mono font-medium ${results.is8147.blockShear > 0 && nearEqual(results.is8147.blockShear, results.is8147.final) ? 'text-rose-600 font-bold' : 'text-neutral-900'}`}>
-                      {results.is8147.blockShear.toFixed(2)} <span className="text-xs text-neutral-500">kN</span>
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center group relative">
+                    <span className="text-sm font-medium text-neutral-600 flex items-center gap-1">
+                      Block shear (adopted IS 800:2007) <Info className="w-3 h-3 text-neutral-400" />
                     </span>
-                  )}
+                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-56 p-2 bg-neutral-800 text-white text-xs rounded shadow-lg z-10">
+                      IS 8147 does not define block shear. This value uses provisions adopted from IS 800:2007 (Clause 6.4.1) with Table 4 σ_at for comparison.
+                    </div>
+                    {results.is8147.blockShear === 0 ? (
+                      <span className="text-sm font-mono text-neutral-400">N/A</span>
+                    ) : (
+                      <span className={`text-base font-mono font-medium ${results.is8147.blockShear > 0 && nearEqual(results.is8147.blockShear, results.is8147.final) ? 'text-rose-600 font-bold' : 'text-neutral-900'}`}>
+                        {results.is8147.blockShear.toFixed(2)} <span className="text-xs text-neutral-500">kN</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-600 leading-snug">
+                    Block shear is not explicitly covered in IS 8147:1976; evaluated here using adopted provisions from IS 800:2007 for comparative assessment.
+                  </p>
                 </div>
                 
                 <div className="pt-4 mt-4 border-t border-neutral-200">
@@ -2206,7 +2261,7 @@ export function TensionMemberCalculator() {
                       <p className="text-xs font-semibold text-neutral-500 uppercase">Governing Mode</p>
                       <p className="text-sm font-medium text-rose-600 flex items-center gap-1 justify-end">
                         <AlertCircle className="w-4 h-4" />
-                        {results.is8147.mode}
+                        {formatIs8147GoverningMode(results.is8147.mode)}
                       </p>
                     </div>
                   </div>
@@ -2294,8 +2349,12 @@ export function TensionMemberCalculator() {
                   <span className="text-neutral-500 text-xs mt-1">Clause 6.2.3 (2) b</span>
                   <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">N_u,Rd = (Aeff × fu) / γM2</span>
                   <span className="text-xs text-neutral-500 mt-1">
-                    Where Aeff = An × β, with β = {derived.beta.toFixed(3)}
-                    {isDoubleAngleBolted ? ' (symmetric double angle: β = 1).' : inputs.connection === 'Bolted' ? ' (shear lag: β = max(0, min(1 − x/L, 1)) unless noted above).' : ' (welded: β = 1 here).'}
+                    Where Aeff = An × β; β is the shear-lag factor from eccentricity ratio x/L (β = {derived.beta.toFixed(3)}).
+                    {isDoubleAngleBolted
+                      ? ' Symmetric double angle: β = 1.'
+                      : inputs.connection === 'Bolted'
+                        ? ' Bolted sections: β from x/L as in EN 1999 shear-lag treatment unless noted above.'
+                        : ' Welded: β = 1 here.'}
                   </span>
                   <span className="font-mono text-xs text-indigo-700 mt-1">Substituted: ({inputs.fu.toFixed(2)} × {derived.aeff.toFixed(2)}) / {inputs.gammaM2.toFixed(2)} / 1000 = {results.eurocode.rupture.toFixed(2)} kN</span>
                 </li>
@@ -2312,9 +2371,9 @@ export function TensionMemberCalculator() {
               <h3 className="text-md font-semibold text-emerald-700 border-b pb-2">IS 8147:1976</h3>
               <ul className="space-y-3 text-sm text-neutral-700">
                 <li className="flex flex-col">
-                  <span className="font-medium text-neutral-900">Axial Tension (Yielding)</span>
-                  <span className="text-neutral-500 text-xs mt-1">Clause 5.1.1</span>
-                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">P = Ag * σ_at</span>
+                  <span className="font-medium text-neutral-900">Allowable Tensile Capacity (Gross Section)</span>
+                  <span className="text-neutral-500 text-xs mt-1">Clause 5.1.1 — Table 4 permissible σ_at (not fy-based yield)</span>
+                  <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">P = Ag × σ_at</span>
                 </li>
                 <li className="flex flex-col">
                   <span className="font-medium text-neutral-900">Axial Tension (Rupture)</span>
@@ -2338,8 +2397,13 @@ export function TensionMemberCalculator() {
                 </li>
                 {inputs.connection === 'Bolted' && (
                   <li className="flex flex-col">
-                    <span className="font-medium text-neutral-900">Block Shear</span>
-                    <span className="text-neutral-500 text-xs mt-1">IS 800:2007 Clause 6.4.1 (Adopted)</span>
+                    <span className="font-medium text-neutral-900">Block Shear (Adopted — not in IS 8147)</span>
+                    <span className="text-neutral-500 text-xs mt-1">
+                      Provisions adopted from IS 800:2007 Clause 6.4.1 for comparative assessment (Table 4 σ_at)
+                    </span>
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1.5 mt-1">
+                      Block shear is not explicitly covered in IS 8147:1976; the formulation below follows an IS 800:2007-style limit-state expression with permissible stress.
+                    </p>
                     <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db1 = (Avg * σ_at) / √3 + 0.9 * Ant * σ_at</span>
                     <span className="font-mono bg-neutral-50 p-2 rounded mt-1 border border-neutral-100">T_db2 = 0.9 * Anv * σ_at / √3 + Atg * σ_at</span>
                     <span className="text-xs text-neutral-500 mt-1">T_db = min(T_db1, T_db2)</span>
